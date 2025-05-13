@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Set
 from pathlib import Path
 import sqlparse
 import string
-from .config_handler import ConfigHandler
+# from .config_handler import ConfigHandler
 import re
 
 
@@ -159,13 +159,11 @@ class SQLStringExtractor(ast.NodeVisitor):
 
 
 class CodeParser:
-    def __init__(self, config_file_path: str = None):
+    def __init__(self):
         self.imports: List[Dict[str, str]] = []
         self.raw_code: str = ""
         self.tree: ast.AST | None = None
-        self.config_handler = ConfigHandler(config_file_path)
-        if config_file_path:
-            self.config_handler.load_config()
+        
 
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         """Parse a Python file and extract imports and raw code."""

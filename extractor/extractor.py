@@ -24,88 +24,154 @@ class SQLExtractor:
             logging.info("SQL styles: %s", sql_styles)
 
             system_content = """
-You are a SQL analysis expert. Your task is to meticulously analyze the provided SQL query and extract all column-level data transformations for data lineage.
+                You are a SQL analysis expert focused on extracting column-level data transformations for lineage.
+                **Focus Solely on User-Provided Query:**
+                You will be given a single SQL query by the user for analysis. Your entire analysis and JSON output must pertain *exclusively* to this user-provided SQL query. The detailed SQL and JSON example provided further below in this prompt serves *only* to illustrate the required JSON structure, field definitions, and the *type* of detailed analysis expected. Do not treat the example SQL as the query to analyze unless it is the one explicitly provided by the user for analysis.
 
-For each target column, you must:
-- Identify every source table and column involved.
-- Capture the exact transformation logic, calculation, or business rule as it appears in the SELECT list or transformation.
-- If the logic is a function, CASE, arithmetic, or uses multiple columns, include the full expression as BUSINESS_RULE.
-- If a target column is a direct passthrough, BUSINESS_RULE is the qualified source column (e.g., t1.col).
-- If a target column is derived from multiple sources, BUSINESS_RULE must show the full logic, and all source columns must be listed.
+                Your output MUST be a single, valid JSON array. Each object in the array represents one transformation and MUST contain the following keys:
+                - SRC_TABLE_NAME: Source table name (string).
+                - SRC_COLUMN_NAME: Source column name (string).
+                - BUSINESS_RULE: The exact transformation logic or qualified source column (string).
+                - TGT_TABLE_NAME: Target table name (string).
+                - TGT_COLUMN_NAME: Target column name (string).
 
-Handle:
-- CTEs, subqueries, and aliases (use RESULT_OF_alias_name for intermediate tables).
-- Placeholders (e.g., {table_name_var}) as described.
-- All SQL constructs, including nested CASE, window functions, aggregations, and expressions.
+                **Core Instructions for Transformation Extraction:**
 
-For each transformation, set TGT_TABLE_NAME as follows:
-- If the query is part of a CREATE TABLE ... AS SELECT ... or INSERT INTO ... SELECT ..., use the explicit table name.
-- If the transformation is for a CTE or subquery, use RESULT_OF_<cte_or_alias_name>.
-- If the query is a top-level SELECT with no explicit target, use "unknown_target" (not "query_output").
-- Never use "query_output" as a target table name.
+                1.  **Identify Sources:** For every target column, list all contributing source tables and columns.
+                2.  **Capture Business Rule:**
+                    - Direct passthrough (e.g., `t1.col`): `BUSINESS_RULE` is the qualified source column.
+                    - Complex logic (functions, CASE, arithmetic, multiple columns): `BUSINESS_RULE` is the full, exact expression.
+                3.  **Determine Target Table Name (TGT_TABLE_NAME):**
+                    - For `CREATE TABLE target_tbl AS ...` or `INSERT INTO target_tbl SELECT ...`: Use `target_tbl` as `TGT_TABLE_NAME`.
+                    - For CTEs (e.g., `WITH cte_name AS (...)`): Use `RESULT_OF_cte_name` as `TGT_TABLE_NAME` when referring to the output of the CTE.
+                    - For subquery aliases (e.g., `FROM (...) AS alias_name`): Use `RESULT_OF_alias_name` as `SRC_TABLE_NAME` or `TGT_TABLE_NAME` when referring to the output of that subquery.
+                    - For a top-level `SELECT` query that does not explicitly create or insert into a table: Use `unknown_target` as `TGT_TABLE_NAME`.
+                    - **Never use "query_output" as a TGT_TABLE_NAME.**
+                4.  **Comprehensive Analysis & `SELECT *`:**
+                    Account for all SQL constructs: CTEs, subqueries, aliases, nested functions, window functions, aggregations, complex expressions.
+                    When encountering `SELECT source_alias.*` (e.g., `ab.*`), derive the lineage for each column that `source_alias.*` expands to. The `SRC_TABLE_NAME` for these columns will be the table(s) or CTEs/subqueries (e.g., `RESULT_OF_source_alias`) that `source_alias` itself is derived from. The `SRC_COLUMN_NAME` will be the original column name within that source, and `TGT_COLUMN_NAME` will be the same column name as it appears in the target. Do not use `*` as a `TGT_COLUMN_NAME`. Ensure all transformations are captured.
 
-Your output MUST be a JSON array, where each object has:
-- SRC_TABLE_NAME
-- SRC_COLUMN_NAME
-- BUSINESS_RULE
-- TGT_TABLE_NAME
-- TGT_COLUMN_NAME
 
-Example output:
-[
-    {
-        "SRC_TABLE_NAME": "sales",
-        "SRC_COLUMN_NAME": "amount",
-        "BUSINESS_RULE": "SUM(s.amount) OVER (PARTITION BY s.region)",
-        "TGT_TABLE_NAME": "RESULT_OF_sales_agg",
-        "TGT_COLUMN_NAME": "regional_sales"
-    },
-    {
-        "SRC_TABLE_NAME": "users",
-        "SRC_COLUMN_NAME": "age",
-        "BUSINESS_RULE": "CASE WHEN u.age > 18 THEN 'adult' ELSE 'minor' END",
-        "TGT_TABLE_NAME": "RESULT_OF_user_status",
-        "TGT_COLUMN_NAME": "age_group"
-    },
-    {
-        "SRC_TABLE_NAME": "orders",
-        "SRC_COLUMN_NAME": "order_date",
-        "BUSINESS_RULE": "DATE_TRUNC('month', o.order_date)",
-        "TGT_TABLE_NAME": "RESULT_OF_monthly_orders",
-        "TGT_COLUMN_NAME": "order_month"
-    },
-    {
-        "SRC_TABLE_NAME": "products",
-        "SRC_COLUMN_NAME": "price",
-        "BUSINESS_RULE": "p.price * 1.2",
-        "TGT_TABLE_NAME": "RESULT_OF_price_update",
-        "TGT_COLUMN_NAME": "adjusted_price"
-    },
-    {
-        "SRC_TABLE_NAME": "sales",
-        "SRC_COLUMN_NAME": "amount",
-        "BUSINESS_RULE": "CASE WHEN s.amount > 1000 THEN 'high' ELSE 'low' END",
-        "TGT_TABLE_NAME": "RESULT_OF_sales_flag",
-        "TGT_COLUMN_NAME": "amount_flag"
-    },
-    {
-        "SRC_TABLE_NAME": "orders",
-        "SRC_COLUMN_NAME": "order_id",
-        "BUSINESS_RULE": "o.order_id",
-        "TGT_TABLE_NAME": "RESULT_OF_order_ids",
-        "TGT_COLUMN_NAME": "order_id"
-    },
-    {
-        "SRC_TABLE_NAME": "sales",
-        "SRC_COLUMN_NAME": "amount",
-        "BUSINESS_RULE": "s.amount",
-        "TGT_TABLE_NAME": "unknown_target",
-        "TGT_COLUMN_NAME": "amount"
-    }
-]
+                **Example of JSON Output Structure and Analysis Depth (Illustrative - Analyze User's Query ONLY):**
 
-Be exhaustive and precise. Do not omit any transformation or business rule. Output ONLY the JSON array.
-"""
+                Consider the following input SQL query (which might have been generated from Python code, resulting in named placeholders like {cn_mstr_table}, {hub_cn_raw_table}, {sat_cn_raw_table}, {time_key_table}, etc.):
+                ```sql
+                CREATE TABLE {cn_mstr_table} location '{cn_mstr_table_path}' AS
+                SELECT ab.*, b.loyaltycard_count
+                FROM (
+                    SELECT
+                        a.householdmemberidentifier, a.retailbrand, a.ciam_customerprofile_detail_hkey, a.householdidentifier AS source_householdidentifier_for_ab, -- aliasing for clarity if used by ab.*
+                        a.brandmemberstatus, a.prefferedstore, a.customercreationdate, a.customerupdateddate,
+                        a.loyaltycardnumber, a.cardcreatedate, a.cardupdatedate, a.personalidentificationnumberprefix AS source_pinprefix_for_ab, -- aliasing for clarity
+                        a.birthday, a.email AS source_email_for_ab, -- aliasing for clarity
+                        a.mobilenumberprefix, a.registrationchannel, a.countryofissue, a.registrationagent,
+                        CASE
+                            WHEN a.current_age < 0 THEN ''
+                            ELSE CAST(a.current_age AS VARCHAR) -- Ensure type consistency for CASE
+                        END AS current_age, -- This is the current_age selected into ab
+                        CASE
+                            WHEN a.current_age < 0 THEN ''
+                            WHEN a.current_age < 20 THEN '<20 Yrs'
+                            WHEN a.current_age BETWEEN 20 AND 25 THEN '20-25 Yrs'
+                            WHEN a.current_age BETWEEN 26 AND 30 THEN '26-30 Yrs'
+                            WHEN a.current_age BETWEEN 31 AND 35 THEN '31-35 Yrs'
+                            WHEN a.current_age BETWEEN 36 AND 40 THEN '36-40 Yrs'
+                            WHEN a.current_age BETWEEN 41 AND 45 THEN '41-45 Yrs'
+                            WHEN a.current_age BETWEEN 46 AND 50 THEN '46-50 Yrs'
+                            WHEN a.current_age BETWEEN 51 AND 55 THEN '51-55 Yrs'
+                            WHEN a.current_age BETWEEN 56 AND 59 THEN '56-59 Yrs'
+                            WHEN a.current_age >= 60 THEN '>60 Yrs'
+                            ELSE '' -- Ensure all paths return a value
+                        END AS AGE_RANGE,
+                        CASE
+                            WHEN (SUBSTR(a.personalidentificationnumberprefix,7,8)) BETWEEN '00' AND '49' THEN 'Female'
+                            WHEN (SUBSTR(a.personalidentificationnumberprefix,7,8)) BETWEEN '50' AND '99' THEN 'Male'
+                            ELSE NULL -- Handle cases where substring might not be in these ranges
+                        END AS GENDER,
+                        CASE
+                            WHEN (a.email = '' OR a.email = 'NULL' OR a.email IS NULL) THEN 'No'
+                            ELSE 'Yes'
+                        END AS HAS_EMAIL,
+                        pmod(row_number() OVER (ORDER BY a.householdidentifier), 2000) AS cn_hash_id,
+                        t.tm_dim_key AS cust_create_dt_key
+                    FROM (
+                        SELECT
+                            h.householdmemberidentifier, h.retailbrand, s.ciam_customerprofile_detail_hkey, s.householdidentifier,
+                            s.brandmemberstatus, s.prefferedstore, s.customercreationdate, s.customerupdateddate,
+                            s.loyaltycardnumber, s.cardcreatedate, s.cardupdatedate, h.personalidentificationnumberprefix, -- Source from h
+                            s.birthday, s.email, s.mobilenumberprefix, s.registrationchannel, s.countryofissue, s.registrationagent, -- Assuming these are from s, or join explicitly
+                            CASE
+                                WHEN h.personalidentificationnumberprefix IS NULL AND s.birthday IS NOT NULL THEN ROUND(CAST(((DATEDIFF(CURRENT_DATE,FROM_UNIXTIME(UNIX_TIMESTAMP(s.birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) AS INT),0)
+                                WHEN h.personalidentificationnumberprefix IS NOT NULL AND CAST(h.personalidentificationnumberprefix AS INT) IS NULL THEN ROUND(CAST(((DATEDIFF(CURRENT_DATE,FROM_UNIXTIME(UNIX_TIMESTAMP(s.birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) AS INT),0)
+                                WHEN h.personalidentificationnumberprefix IS NOT NULL AND CAST(FROM_UNIXTIME(UNIX_TIMESTAMP((SUBSTR(h.personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd') AS DATE) IS NULL THEN ROUND(CAST(((DATEDIFF(CURRENT_DATE, FROM_UNIXTIME(UNIX_TIMESTAMP(s.birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) AS INT),0)
+                                WHEN h.personalidentificationnumberprefix IS NOT NULL AND ROUND(CAST(((DATEDIFF(CURRENT_DATE, FROM_UNIXTIME(UNIX_TIMESTAMP((SUBSTR(h.personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) AS INT),0) < 50 THEN ROUND(CAST(((DATEDIFF(CURRENT_DATE, FROM_UNIXTIME(UNIX_TIMESTAMP(s.birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) AS INT),0)
+                                WHEN h.personalidentificationnumberprefix IS NOT NULL AND s.birthday IS NOT NULL AND ROUND(CAST(((DATEDIFF(CURRENT_DATE, FROM_UNIXTIME(UNIX_TIMESTAMP((SUBSTR(h.personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) AS INT),0) <> ROUND(CAST(((DATEDIFF(CURRENT_DATE, FROM_UNIXTIME(UNIX_TIMESTAMP(s.birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) AS INT),0) THEN ROUND(CAST(((DATEDIFF(CURRENT_DATE, FROM_UNIXTIME(UNIX_TIMESTAMP((SUBSTR(h.personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) AS INT),0)
+                                ELSE ROUND(CAST(((DATEDIFF(CURRENT_DATE, FROM_UNIXTIME(UNIX_TIMESTAMP(s.birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) AS INT),0)
+                            END current_age, -- This is the calculated current_age
+                            s.email, -- ensure email is selected out of subquery 'a' if used in 'ab'
+                            rank() OVER (PARTITION BY s.ciam_customerprofile_detail_hkey ORDER BY s.load_date DESC) AS rank
+                        FROM {hub_cn_raw_table} h
+                        JOIN {sat_cn_raw_table} s ON h.ciam_customerprofile_detail_hkey = s.ciam_customerprofile_detail_hkey -- Explicit JOIN
+                    ) a
+                    INNER JOIN {time_key_table} t ON (FROM_UNIXTIME(UNIX_TIMESTAMP(a.customercreationdate,'yyyy/MM/dd'),'MM-dd-yy') = t.tm_end_date)
+                    WHERE a.rank = 1
+                ) ab
+                LEFT OUTER JOIN (
+                    SELECT h.householdmemberidentifier, h.retailbrand, count(distinct s.loyaltycardnumber) AS loyaltycard_count
+                    FROM {sat_cn_raw_table} s
+                    JOIN {hub_cn_raw_table} h ON s.ciam_customerprofile_detail_hkey = h.ciam_customerprofile_detail_hkey
+                    GROUP BY h.householdmemberidentifier, h.retailbrand
+                ) b ON ab.source_householdidentifier_for_ab = b.householdmemberidentifier AND ab.retailbrand = b.retailbrand
+                ```
+
+                For this specific query, some example transformations for the JSON output would be:
+                ```json
+                [
+                    {
+                        "SRC_TABLE_NAME": "hub_cn_raw_table",
+                        "SRC_COLUMN_NAME": "householdmemberidentifier",
+                        "BUSINESS_RULE": "h.householdmemberidentifier",
+                        "TGT_TABLE_NAME": "cn_mstr_table",
+                        "TGT_COLUMN_NAME": "householdmemberidentifier"
+                    },
+                    {
+                        "SRC_TABLE_NAME": "RESULT_OF_a",
+                        "SRC_COLUMN_NAME": "current_age",
+                        "BUSINESS_RULE": "CASE WHEN a.current_age < 0 THEN '' WHEN a.current_age < 20 THEN '<20 Yrs' WHEN a.current_age BETWEEN 20 AND 25 THEN '20-25 Yrs' WHEN a.current_age BETWEEN 26 AND 30 THEN '26-30 Yrs' WHEN a.current_age BETWEEN 31 AND 35 THEN '31-35 Yrs' WHEN a.current_age BETWEEN 36 AND 40 THEN '36-40 Yrs' WHEN a.current_age BETWEEN 41 AND 45 THEN '41-45 Yrs' WHEN a.current_age BETWEEN 46 AND 50 THEN '46-50 Yrs' WHEN a.current_age BETWEEN 51 AND 55 THEN '51-55 Yrs' WHEN a.current_age BETWEEN 56 AND 59 THEN '56-59 Yrs' WHEN a.current_age >= 60 THEN '>60 Yrs' ELSE '' END",
+                        "TGT_TABLE_NAME": "cn_mstr_table",
+                        "TGT_COLUMN_NAME": "AGE_RANGE"
+                    },
+                    {
+                        "SRC_TABLE_NAME": "hub_cn_raw_table",
+                        "SRC_COLUMN_NAME": "personalidentificationnumberprefix",
+                        "BUSINESS_RULE": "CASE WHEN (SUBSTR(h.personalidentificationnumberprefix,7,8)) BETWEEN '00' AND '49' THEN 'Female' WHEN (SUBSTR(h.personalidentificationnumberprefix,7,8)) BETWEEN '50' AND '99' THEN 'Male' ELSE NULL END",
+                        "TGT_TABLE_NAME": "cn_mstr_table",
+                        "TGT_COLUMN_NAME": "GENDER"
+                    },
+                    {
+                        "SRC_TABLE_NAME": "RESULT_OF_b",
+                        "SRC_COLUMN_NAME": "loyaltycard_count",
+                        "BUSINESS_RULE": "b.loyaltycard_count",
+                        "TGT_TABLE_NAME": "cn_mstr_table",
+                        "TGT_COLUMN_NAME": "loyaltycard_count"
+                    },
+                    {
+                        "SRC_TABLE_NAME": "RESULT_OF_a",
+                        "SRC_COLUMN_NAME": "householdidentifier",
+                        "BUSINESS_RULE": "pmod(row_number() OVER (ORDER BY a.householdidentifier), 2000)",
+                        "TGT_TABLE_NAME": "cn_mstr_table",
+                        "TGT_COLUMN_NAME": "cn_hash_id"
+                    },
+                    {
+                        "SRC_TABLE_NAME": "sat_cn_raw_table",
+                        "SRC_COLUMN_NAME": "email",
+                        "BUSINESS_RULE": "CASE WHEN (s.email = '' OR s.email = 'NULL' OR s.email IS NULL) THEN 'No' ELSE 'Yes' END",
+                        "TGT_TABLE_NAME": "cn_mstr_table",
+                        "TGT_COLUMN_NAME": "HAS_EMAIL"
+                    }
+                ]
+                ```
+            """
 
             prompt = self._build_prompt_for_sql_query(sql_query, sql_styles)
             messages = [
