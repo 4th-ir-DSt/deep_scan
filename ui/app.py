@@ -6,22 +6,34 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-sys.path.append(str(Path(__file__).parent.parent))
-from config.settings import settings
-from parser.parser import CodeParser
-from extractor.extractor import SQLExtractor
+# Get the absolute path to the project root
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# Add the project root to Python path if it's not already there
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+try:
+    from config.settings import settings
+    from parser.parser import CodeParser
+    from extractor.extractor import SQLExtractor
+except ImportError as e:
+    st.error(f"Error importing modules: {str(e)}")
+    st.error(f"Python path: {sys.path}")
+    st.error(f"Project root: {PROJECT_ROOT}")
+    st.stop()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
 def main():
     st.set_page_config(
-        page_title="Code Extractor POC",
+        page_title="Universal Deep Scanner POC",
         page_icon="🔍",
         layout="wide"
     )
 
-    st.title("Code Extractor POC")
+    st.title("Universal Deep Scanner POC")
     st.markdown("Analyze source code for data transformations")
 
     # File Upload
@@ -83,24 +95,35 @@ def main():
                             logging.info(
                                 f"Extractor output for query {i+1}: {operations_str_for_query}")
 
-                            # Parse the JSON string for the current query's operations
-                            if operations_str_for_query.strip().startswith('['):
-                                current_query_operations = json.loads(
-                                    operations_str_for_query)
+                            # --- Improved sanitizer: extract only the JSON array ---
+                            import re
+                            sanitized_output = operations_str_for_query.strip()
+                            # Remove code block markers if present
+                            sanitized_output = re.sub(r'^```json|```$', '', sanitized_output, flags=re.MULTILINE).strip()
+                            # Extract everything from the first '[' to the last ']'
+                            start = sanitized_output.find('[')
+                            end = sanitized_output.rfind(']')
+                            if start != -1 and end != -1 and end > start:
+                                json_str = sanitized_output[start:end+1]
                             else:
-                                import re
-                                json_array_match = re.search(
-                                    r'\[(.*?)\]', operations_str_for_query, re.DOTALL)
-                                if json_array_match:
-                                    current_query_operations = json.loads(
-                                        json_array_match.group(0))
-                                else:
-                                    # If a query doesn't return valid JSON, log it and skip, or handle as an error
-                                    st.warning(
-                                        f"Could not find a valid JSON array in the model output for query {i+1}. Skipping.")
-                                    # Show problematic output
-                                    st.code(operations_str_for_query)
-                                    current_query_operations = []  # or continue to next query
+                                json_str = sanitized_output  # fallback
+                            try:
+                                current_query_operations = json.loads(json_str)
+                                # --- Post-processing: flag unknown or missing target tables ---
+                                flagged_ops = []
+                                for op in current_query_operations:
+                                    if (
+                                        not op.get('TGT_TABLE_NAME') or
+                                        op.get('TGT_TABLE_NAME') == 'unknown_target'
+                                    ):
+                                        flagged_ops.append(op)
+                                if flagged_ops:
+                                    st.warning(f"{len(flagged_ops)} lineage row(s) have an unknown or missing target table. Please review these entries.")
+                                    st.code(flagged_ops)
+                            except json.JSONDecodeError as e:
+                                st.error(f"Error parsing JSON from model output for query {i+1}: {str(e)}")
+                                st.code(sanitized_output)
+                                current_query_operations = []
 
                             if isinstance(current_query_operations, list):
                                 all_lineage_operations.extend(
@@ -111,12 +134,6 @@ def main():
                                 logging.warning(
                                     f"Non-list output for query {i+1}: {current_query_operations}")
 
-                        except json.JSONDecodeError as e:
-                            st.error(
-                                f"Error parsing JSON from model output for query {i+1}: {str(e)}")
-                            # Show problematic output
-                            st.code(operations_str_for_query)
-                            # Optionally, continue to the next query or stop
                         except Exception as e:
                             st.error(
                                 f"Error processing query {i+1} with the extractor: {str(e)}")

@@ -3,6 +3,8 @@ from typing import List, Dict, Any, Set
 from pathlib import Path
 import sqlparse
 import string
+from .config_handler import ConfigHandler
+import re
 
 
 class SQLStringExtractor(ast.NodeVisitor):
@@ -157,10 +159,13 @@ class SQLStringExtractor(ast.NodeVisitor):
 
 
 class CodeParser:
-    def __init__(self):
+    def __init__(self, config_file_path: str = None):
         self.imports: List[Dict[str, str]] = []
         self.raw_code: str = ""
         self.tree: ast.AST | None = None
+        self.config_handler = ConfigHandler(config_file_path)
+        if config_file_path:
+            self.config_handler.load_config()
 
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         """Parse a Python file and extract imports and raw code."""
@@ -229,10 +234,34 @@ class CodeParser:
             A list of unique SQL query strings (templates) found in the code.
         """
         if self.tree is None or not self.raw_code:
-            # Ensure raw_code is also available as it's needed by SQLStringExtractor
             return []
 
-        extractor = SQLStringExtractor(
-            raw_python_code=self.raw_code)  # Pass raw_code
+        extractor = SQLStringExtractor(raw_python_code=self.raw_code)
         extractor.visit(self.tree)
-        return list(extractor.sql_strings)
+        queries = set(extractor.sql_strings)
+
+        # --- Regex-based fallback extraction for SQL-like strings ---
+        sql_regex = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE|CREATE|WITH)\b[\s\S]+?;", re.IGNORECASE)
+        for match in sql_regex.finditer(self.raw_code):
+            queries.add(match.group().strip())
+
+        return list(queries)
+
+    def get_database_config(self, section_name: str) -> Dict[str, str]:
+        """Get database configuration for a specific section.
+        
+        Args:
+            section_name: Name of the configuration section (e.g. 'vn_dim', 'it_dim')
+            
+        Returns:
+            Dictionary of database configuration values
+        """
+        return self.config_handler.get_section(section_name)
+
+    def get_all_database_configs(self) -> Dict[str, Dict[str, str]]:
+        """Get all database configurations.
+        
+        Returns:
+            Dictionary of all database configuration sections and their values
+        """
+        return self.config_handler.get_all_sections()

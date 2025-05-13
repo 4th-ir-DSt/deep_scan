@@ -23,89 +23,89 @@ class SQLExtractor:
             # Retained if dialects are important
             logging.info("SQL styles: %s", sql_styles)
 
-            system_content = """You are a SQL analysis expert. Your task is to meticulously analyze the provided SQL query and extract all column-level data transformations.
-            Deconstruct the query, paying close attention to Common Table Expressions (CTEs), nested subqueries, and table/column aliases to trace the complete data lineage.
-            The SQL query you receive may contain placeholders. These represent table names or other values that were variables in the original source code.
-              - Placeholders might be anonymous (e.g., "{}", "{0}", "{1}").
-              - OR, they might retain a semblance of the original variable name (e.g., "{table_name_var}", "{schema_placeholder}").
+            system_content = """
+You are a SQL analysis expert. Your task is to meticulously analyze the provided SQL query and extract all column-level data transformations for data lineage.
 
-            Your output MUST be a JSON array, where each object represents a single column-level transformation with the following fields:
+For each target column, you must:
+- Identify every source table and column involved.
+- Capture the exact transformation logic, calculation, or business rule as it appears in the SELECT list or transformation.
+- If the logic is a function, CASE, arithmetic, or uses multiple columns, include the full expression as BUSINESS_RULE.
+- If a target column is a direct passthrough, BUSINESS_RULE is the qualified source column (e.g., t1.col).
+- If a target column is derived from multiple sources, BUSINESS_RULE must show the full logic, and all source columns must be listed.
 
-            "SRC_TABLE_NAME":
-              - If the source is a base table whose name is a literal IN THE SQL QUERY YOU RECEIVE, use that literal name (e.g., "actual_sales_table").
-              - If the source is an aliased subquery or CTE (e.g., "... FROM (SELECT ...) AS alias_name" or "WITH alias_name AS (...) ..."), the name should be "RESULT_OF_alias_name".
-              - If the source is an unaliased intermediate result set, generate a sequential name like "intermediate_result_set_1", "intermediate_result_set_2".
-              - If a table name in the SQL query is a NAMED placeholder (e.g., "{my_actual_table_name_var}", "{some_config_value}"), use that name directly in your output, stripping the curly braces (e.g., "my_actual_table_name_var", "some_config_value"). THIS IS PREFERRED.
-              - If a table name in the SQL query is an ANONYMOUS placeholder (e.g., "{0}", "{1}", or a generic "{}"), then fall back to using "placeholder_table_0", "placeholder_table_1", "placeholder_table_unnamed" respectively.
+Handle:
+- CTEs, subqueries, and aliases (use RESULT_OF_alias_name for intermediate tables).
+- Placeholders (e.g., {table_name_var}) as described.
+- All SQL constructs, including nested CASE, window functions, aggregations, and expressions.
 
-            "SRC_COLUMN_NAME":
-              - The name of the source column (e.g., "alt_key", "email").
-              - DO NOT prefix this with table or subquery aliases (e.g., use "alt_key", not "t1.alt_key").
+For each transformation, set TGT_TABLE_NAME as follows:
+- If the query is part of a CREATE TABLE ... AS SELECT ... or INSERT INTO ... SELECT ..., use the explicit table name.
+- If the transformation is for a CTE or subquery, use RESULT_OF_<cte_or_alias_name>.
+- If the query is a top-level SELECT with no explicit target, use "unknown_target" (not "query_output").
+- Never use "query_output" as a target table name.
 
-            "BUSINESS_RULE":
-              - The exact expression or logic used for the transformation (e.g., "nvl(b.email,'')", "mkl.alt_key", "a.column_from_subquery").
-              - THIS FIELD SHOULD REFLECT ALIASES if they are used in the expression (e.g., 'b.email' if 'b' is the alias in the expression).
-              - For direct passthrough, this will be the qualified source column (e.g. "mkl.alt_key" if "mkl" is the alias of the source table/subquery in the expression).
+Your output MUST be a JSON array, where each object has:
+- SRC_TABLE_NAME
+- SRC_COLUMN_NAME
+- BUSINESS_RULE
+- TGT_TABLE_NAME
+- TGT_COLUMN_NAME
 
-            "TGT_TABLE_NAME":
-              - If the query creates or inserts into a table whose name is a literal IN THE SQL QUERY YOU RECEIVE (e.g., "CREATE TABLE target_table AS ...", "INSERT INTO target_table ..."), use "target_table".
-              - If the target table name in the SQL query is a NAMED placeholder (e.g., "{my_target_var}"), use that name directly, stripping the curly braces (e.g., "my_target_var"). THIS IS PREFERRED.
-              - If the target table name in the SQL query is an ANONYMOUS placeholder (e.g., "{0}", "{}"), then fall back to using "placeholder_target_table_0", "placeholder_target_table_unnamed" respectively.
-              - If the transformation defines columns for an aliased subquery or CTE (e.g. "WITH alias_name AS (SELECT col1 AS target_col ... )" or "(SELECT col1 AS target_col ...) AS alias_name"), then "TGT_TABLE_NAME" for that step is "RESULT_OF_alias_name".
-              - If it's an unaliased intermediate result set being defined, use the same generated name as its corresponding "SRC_TABLE_NAME" when it's consumed (e.g., "intermediate_result_set_1").
-              - For plain SELECT statements not explicitly storing results in a named structure recognizable from the query, use "query_output".
+Example output:
+[
+    {
+        "SRC_TABLE_NAME": "sales",
+        "SRC_COLUMN_NAME": "amount",
+        "BUSINESS_RULE": "SUM(s.amount) OVER (PARTITION BY s.region)",
+        "TGT_TABLE_NAME": "RESULT_OF_sales_agg",
+        "TGT_COLUMN_NAME": "regional_sales"
+    },
+    {
+        "SRC_TABLE_NAME": "users",
+        "SRC_COLUMN_NAME": "age",
+        "BUSINESS_RULE": "CASE WHEN u.age > 18 THEN 'adult' ELSE 'minor' END",
+        "TGT_TABLE_NAME": "RESULT_OF_user_status",
+        "TGT_COLUMN_NAME": "age_group"
+    },
+    {
+        "SRC_TABLE_NAME": "orders",
+        "SRC_COLUMN_NAME": "order_date",
+        "BUSINESS_RULE": "DATE_TRUNC('month', o.order_date)",
+        "TGT_TABLE_NAME": "RESULT_OF_monthly_orders",
+        "TGT_COLUMN_NAME": "order_month"
+    },
+    {
+        "SRC_TABLE_NAME": "products",
+        "SRC_COLUMN_NAME": "price",
+        "BUSINESS_RULE": "p.price * 1.2",
+        "TGT_TABLE_NAME": "RESULT_OF_price_update",
+        "TGT_COLUMN_NAME": "adjusted_price"
+    },
+    {
+        "SRC_TABLE_NAME": "sales",
+        "SRC_COLUMN_NAME": "amount",
+        "BUSINESS_RULE": "CASE WHEN s.amount > 1000 THEN 'high' ELSE 'low' END",
+        "TGT_TABLE_NAME": "RESULT_OF_sales_flag",
+        "TGT_COLUMN_NAME": "amount_flag"
+    },
+    {
+        "SRC_TABLE_NAME": "orders",
+        "SRC_COLUMN_NAME": "order_id",
+        "BUSINESS_RULE": "o.order_id",
+        "TGT_TABLE_NAME": "RESULT_OF_order_ids",
+        "TGT_COLUMN_NAME": "order_id"
+    },
+    {
+        "SRC_TABLE_NAME": "sales",
+        "SRC_COLUMN_NAME": "amount",
+        "BUSINESS_RULE": "s.amount",
+        "TGT_TABLE_NAME": "unknown_target",
+        "TGT_COLUMN_NAME": "amount"
+    }
+]
 
-            "TGT_COLUMN_NAME":
-              - The name of the target column, often an alias defined in the SELECT list (e.g., "householdmemberidentifier" from "mkl.alt_key AS householdmemberidentifier"). If no alias, it's the column name itself.
-
-            IMPORTANT FOR COMPLETENESS:
-            - Analyze EACH part of the SELECT list, EACH generated column in a CREATE TABLE AS, and EACH column in an INSERT INTO ... SELECT statement.
-            - Unpack all expressions, including those within CASE statements, function calls, and arithmetic operations, into individual lineage rows if they map to a target column.
-            - If a single source column directly maps to a target column without transformation, represent this as a row.
-            - If multiple source columns are used in a business rule for one target column, create one row for that target column, listing all sources in the business rule.
-            - Be meticulous: aim to extract ALL column-level transformations. The goal is to achieve a comprehensive lineage map, similar to what a programmatic parser would achieve.
-
-            Ensure the JSON is valid. The example below illustrates the structure.
-
-            Example output structure:
-            [
-                {
-                    "SRC_TABLE_NAME": "wh_postx_shoprite_p1.master_key_lookup",
-                    "SRC_COLUMN_NAME": "alt_key",
-                    "BUSINESS_RULE": "mkl.alt_key",
-                    "TGT_TABLE_NAME": "target_table_from_var",
-                    "TGT_COLUMN_NAME": "householdmemberidentifier"
-                },
-                {
-                    "SRC_TABLE_NAME": "wh_postx_shoprite_p1.shoprite_cn_mstr",
-                    "SRC_COLUMN_NAME": "personalidentificationnumberprefix",
-                    "BUSINESS_RULE": "nvl(b.personalidentificationnumberprefix,'')",
-                    "TGT_TABLE_NAME": "target_table_from_var",
-                    "TGT_COLUMN_NAME": "personalidentificationnumberprefix"
-                },
-                {
-                    "SRC_TABLE_NAME": "RESULT_OF_sub_a",
-                    "SRC_COLUMN_NAME": "derived_activity_col",
-                    "BUSINESS_RULE": "CASE WHEN sub_a.derived_activity_col IS NULL THEN 'Unknown' ELSE sub_a.derived_activity_col END",
-                    "TGT_TABLE_NAME": "target_table_from_var",
-                    "TGT_COLUMN_NAME": "final_activity_status"
-                },
-                {
-                    "SRC_TABLE_NAME": "some_base_table",
-                    "SRC_COLUMN_NAME": "raw_value",
-                    "BUSINESS_RULE": "cte_alias.raw_value * 1.1",
-                    "TGT_TABLE_NAME": "RESULT_OF_my_cte",
-                    "TGT_COLUMN_NAME": "adjusted_value"
-                },
-                {
-                    "SRC_TABLE_NAME": "placeholder_table_0",
-                    "SRC_COLUMN_NAME": "some_column",
-                    "BUSINESS_RULE": "ph0.some_column",
-                    "TGT_TABLE_NAME": "target_table_from_var",
-                    "TGT_COLUMN_NAME": "target_column_for_placeholder_src"
-                }
-            ]
-            """
+Be exhaustive and precise. Do not omit any transformation or business rule. Output ONLY the JSON array.
+"""
 
             prompt = self._build_prompt_for_sql_query(sql_query, sql_styles)
             messages = [
