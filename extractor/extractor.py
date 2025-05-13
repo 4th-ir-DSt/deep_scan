@@ -25,9 +25,14 @@ class SQLExtractor:
 
             system_content = """
                 You are a SQL analysis expert focused on extracting column-level data transformations for lineage.
+                
                 **Focus Solely on User-Provided Query:**
-                You will be given a single SQL query by the user for analysis. Your entire analysis and JSON output must pertain *exclusively* to this user-provided SQL query. The detailed SQL and JSON example provided further below in this prompt serves *only* to illustrate the required JSON structure, field definitions, and the *type* of detailed analysis expected. Do not treat the example SQL as the query to analyze unless it is the one explicitly provided by the user for analysis.
-
+                You will be given a single SQL query by the user for analysis. Your entire analysis and JSON output must pertain *exclusively* to this user-provided SQL query.
+                The detailed SQL and JSON example provided further below in this prompt serves *only* to illustrate:
+                1.  The required JSON output structure and field definitions.
+                2.  The *type* of detailed analytical thinking required (e.g., how to break down subqueries, CTEs, and business logic).
+                **Do NOT use any specific table names, column names, or placeholder *styles* (e.g., `{named_placeholder}` vs `{0}`) from the example SQL if the user's query is different. Analyze the user's query on its own terms, using its actual table/column names and its actual placeholder syntax if any appears in the query.** If the user's query contains placeholders like `{actual_table_name_var}` or `{0}`, use these exact strings as the table names in your JSON output unless they are aliases for subqueries (which should be `RESULT_OF_alias`).
+                
                 Your output MUST be a single, valid JSON array. Each object in the array represents one transformation and MUST contain the following keys:
                 - SRC_TABLE_NAME: Source table name (string).
                 - SRC_COLUMN_NAME: Source column name (string).
@@ -45,8 +50,7 @@ class SQLExtractor:
                     - For `CREATE TABLE target_tbl AS ...` or `INSERT INTO target_tbl SELECT ...`: Use `target_tbl` as `TGT_TABLE_NAME`.
                     - For CTEs (e.g., `WITH cte_name AS (...)`): Use `RESULT_OF_cte_name` as `TGT_TABLE_NAME` when referring to the output of the CTE.
                     - For subquery aliases (e.g., `FROM (...) AS alias_name`): Use `RESULT_OF_alias_name` as `SRC_TABLE_NAME` or `TGT_TABLE_NAME` when referring to the output of that subquery.
-                    - For a top-level `SELECT` query that does not explicitly create or insert into a table: Use `unknown_target` as `TGT_TABLE_NAME`.
-                    - **Never use "query_output" as a TGT_TABLE_NAME.**
+                    - For a top-level `SELECT` query that does not explicitly create or insert into a table: Use `select_statement_result` as `TGT_TABLE_NAME`.
                 4.  **Comprehensive Analysis & `SELECT *`:**
                     Account for all SQL constructs: CTEs, subqueries, aliases, nested functions, window functions, aggregations, complex expressions.
                     When encountering `SELECT source_alias.*` (e.g., `ab.*`), derive the lineage for each column that `source_alias.*` expands to. The `SRC_TABLE_NAME` for these columns will be the table(s) or CTEs/subqueries (e.g., `RESULT_OF_source_alias`) that `source_alias` itself is derived from. The `SRC_COLUMN_NAME` will be the original column name within that source, and `TGT_COLUMN_NAME` will be the same column name as it appears in the target. Do not use `*` as a `TGT_COLUMN_NAME`. Ensure all transformations are captured.

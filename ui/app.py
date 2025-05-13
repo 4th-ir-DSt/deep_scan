@@ -110,16 +110,16 @@ def main():
                             try:
                                 current_query_operations = json.loads(json_str)
                                 # --- Post-processing: flag unknown or missing target tables ---
-                                flagged_ops = []
-                                for op in current_query_operations:
-                                    if (
-                                        not op.get('TGT_TABLE_NAME') or
-                                        op.get('TGT_TABLE_NAME') == 'unknown_target'
-                                    ):
-                                        flagged_ops.append(op)
-                                if flagged_ops:
-                                    st.warning(f"{len(flagged_ops)} lineage row(s) have an unknown or missing target table. Please review these entries.")
-                                    st.code(flagged_ops)
+                                # flagged_ops = []
+                                # for op in current_query_operations:
+                                #     if (
+                                #         not op.get('TGT_TABLE_NAME') or
+                                #         op.get('TGT_TABLE_NAME') == 'unknown_target'
+                                #     ):
+                                #         flagged_ops.append(op)
+                                # if flagged_ops:
+                                #     st.warning(f"{len(flagged_ops)} lineage row(s) have an unknown or missing target table. Please review these entries.")
+                                #     st.code(flagged_ops)
                             except json.JSONDecodeError as e:
                                 st.error(f"Error parsing JSON from model output for query {i+1}: {str(e)}")
                                 st.code(sanitized_output)
