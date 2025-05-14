@@ -33,74 +33,81 @@ def main():
         layout="wide"
     )
 
-    st.title("Universal Deep Scanner POC")
-    st.markdown("Analyze source code for data transformations")
+    # Add a visually appealing, modern header
+    st.markdown(
+        """
+        <div style='
+            background: linear-gradient(90deg, #2563EB 0%, #3B82F6 100%);
+            padding: 2rem 1.5rem;
+            border-radius: 16px;
+            margin-bottom: 2.5rem;
+            box-shadow: 0 4px 16px rgba(37,99,235,0.10), 0 1.5px 6px rgba(0,0,0,0.04);
+            display: flex;
+            align-items: center;
+            gap: 1.2rem;
+        '>
+            <div style='font-size: 2.5rem; line-height: 1; color: #fff;'>🔎</div>
+            <div>
+                <h1 style='color: white; margin-bottom: 0.3rem; font-family: "Segoe UI", "Roboto", "Arial", sans-serif; font-size: 2.2rem; letter-spacing: -1px;'>Universal Deep Scanner</h1>
+                <div style='color: #e0e7ef; font-size: 1.15rem; font-family: "Segoe UI", "Roboto", "Arial", sans-serif;'>Extract and analyze data transformations from code with ease</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-    # File Upload
+    st.sidebar.header("Upload & Settings")
     uploaded_file = st.sidebar.file_uploader(
         "Choose a Python file",
         type=settings.supported_extensions
     )
 
+    st.sidebar.markdown("---")
+    st.sidebar.header("Detected SQL Styles")
+
+
     if uploaded_file is not None:
-        # Save uploaded file temporarily
         temp_path = Path("temp") / uploaded_file.name
         temp_path.parent.mkdir(exist_ok=True)
         temp_path.write_bytes(uploaded_file.getvalue())
 
         try:
-            # Parse code
             parser = CodeParser()
             parsed_data = parser.parse_file(str(temp_path))
             sql_styles = parser.get_sql_style()
-
-            # Get extracted SQL queries from the parser
             extracted_sql_queries = parser.get_extracted_sql_queries()
 
-            # Show detected SQL styles
-            st.sidebar.markdown("### Detected SQL Styles")
             for style in sql_styles:
-                st.sidebar.info(f"🔍 {style}")
+                st.sidebar.write(style)
 
-            # Display extracted SQL queries in the sidebar for review (optional)
             if extracted_sql_queries:
                 st.sidebar.markdown("### Extracted SQL Queries for Analysis")
                 for i, sql_q in enumerate(extracted_sql_queries):
                     with st.sidebar.expander(f"Query {i+1}"):
                         st.code(sql_q, language='sql')
             else:
-                st.sidebar.warning(
-                    "No SQL queries were automatically extracted from the file.")
+                st.sidebar.warning("No SQL queries were automatically extracted from the file.")
 
             if st.sidebar.button("Run Lineage Extraction"):
                 if not extracted_sql_queries:
-                    st.warning(
-                        "No SQL queries were extracted from the file. Cannot run lineage extraction.")
+                    st.warning("No SQL queries were extracted from the file. Cannot run lineage extraction.")
                     return
 
                 with st.spinner("Analyzing SQL queries for lineage..."):
                     extractor = SQLExtractor()
-                    all_lineage_operations = []  # To store results from all queries
-
+                    all_lineage_operations = []
+                    status_placeholder = st.empty()
+                    error_count = 0
                     for i, sql_query in enumerate(extracted_sql_queries):
-                        st.info(f"Processing SQL Query {i+1}...")
-                        logging.info(
-                            f"Sending to extractor - SQL Query: {sql_query}, Styles: {sql_styles}")
-                        # Call the renamed method with a single SQL query
+                        status_placeholder.write(f"Processing SQL Query {i+1} of {len(extracted_sql_queries)}...")
                         try:
                             operations_str_for_query = extractor.extract_transformations_from_sql_query(
                                 sql_query,
                                 sql_styles
                             )
-                            logging.info(
-                                f"Extractor output for query {i+1}: {operations_str_for_query}")
-
-                            # --- Improved sanitizer: extract only the JSON array ---
                             import re
                             sanitized_output = operations_str_for_query.strip()
-                            # Remove code block markers if present
                             sanitized_output = re.sub(r'^```json|```$', '', sanitized_output, flags=re.MULTILINE).strip()
-                            # Extract everything from the first '[' to the last ']'
                             start = sanitized_output.find('[')
                             end = sanitized_output.rfind(']')
                             if start != -1 and end != -1 and end > start:
@@ -109,7 +116,6 @@ def main():
                                 json_str = sanitized_output  # fallback
                             try:
                                 current_query_operations = json.loads(json_str)
-                                # --- Post-processing: flag unknown or missing target tables ---
                                 flagged_ops = []
                                 for op in current_query_operations:
                                     if (
@@ -121,36 +127,30 @@ def main():
                                     st.warning(f"{len(flagged_ops)} lineage row(s) have an unknown or missing target table. Please review these entries.")
                                     st.code(flagged_ops)
                             except json.JSONDecodeError as e:
-                                st.error(f"Error parsing JSON from model output for query {i+1}: {str(e)}")
+                                error_count += 1
+                                st.error(f"Error parsing JSON from model output for query {i+1}. Please check the SQL or model output.")
                                 st.code(sanitized_output)
                                 current_query_operations = []
-
                             if isinstance(current_query_operations, list):
                                 all_lineage_operations.extend(
                                     current_query_operations)
                             else:
+                                error_count += 1
                                 st.warning(
                                     f"Expected a list of operations from query {i+1}, but got {type(current_query_operations)}. Skipping this query's results.")
                                 logging.warning(
                                     f"Non-list output for query {i+1}: {current_query_operations}")
-
                         except Exception as e:
-                            st.error(
-                                f"Error processing query {i+1} with the extractor: {str(e)}")
-                            # Optionally, continue to the next query or stop
+                            error_count += 1
+                            st.error(f"Error processing query {i+1}. Please check the SQL or model output.")
+                    status_placeholder.write("All queries processed.")
 
                     if not all_lineage_operations:
-                        st.warning(
-                            "No lineage operations could be extracted from the SQL queries.")
+                        st.warning("No lineage operations could be extracted from the SQL queries.")
                         return
 
-                    logging.info(
-                        "All aggregated lineage operations: %s", all_lineage_operations)
-
-                    # The final result is a flat list of all operations from all queries
                     result = {"column_level_lineage": all_lineage_operations}
 
-                    # Display results in tabs
                     tab1, tab2, tab3 = st.tabs(
                         ["JSON Output", "Table Preview", "Download"])
 
@@ -158,7 +158,6 @@ def main():
                         st.json(result, expanded=False)
 
                     with tab2:
-                        # Use the aggregated list
                         df = pd.DataFrame(all_lineage_operations)
                         if not df.empty:
                             st.dataframe(df)
@@ -174,7 +173,6 @@ def main():
                             file_name=f"lineage_extract_{timestamp}.json",
                             mime="application/json"
                         )
-
                         if not df.empty:
                             csv = df.to_csv(index=False)
                             st.download_button(
@@ -183,15 +181,11 @@ def main():
                                 file_name=f"lineage_extract_{timestamp}.csv",
                                 mime="text/csv"
                             )
-
                             excel_file_name = f"lineage_extract_{timestamp}.xlsx"
                             excel_temp_path = temp_path.parent / excel_file_name
-
                             try:
-                                # Use pandas ExcelWriter context manager for safety
                                 with pd.ExcelWriter(excel_temp_path, engine='openpyxl') as writer:
                                     df.to_excel(writer, index=False)
-
                                 with open(excel_temp_path, "rb") as f_excel:
                                     st.download_button(
                                         "Download Excel",
@@ -200,23 +194,20 @@ def main():
                                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                     )
                             except Exception as e:
-                                st.error(f"Error preparing Excel file: {e}")
+                                st.error(f"Error preparing Excel file for download.")
                             finally:
                                 if excel_temp_path.exists():
                                     excel_temp_path.unlink()  # Clean up temp Excel file
                         else:
                             st.info("No data to download for CSV/Excel.")
-
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
-            # Log full traceback
             logging.exception("Error in file processing UI:")
-
         finally:
-            # Cleanup
             if temp_path.exists():
                 temp_path.unlink()
-
+    else:
+        st.info("Upload a Python file to get started.")
 
 if __name__ == "__main__":
     main()
