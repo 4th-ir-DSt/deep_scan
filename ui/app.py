@@ -37,8 +37,8 @@ def main():
     st.markdown(
         """
         <div style='
-            background: linear-gradient(90deg, #2563EB 0%, #3B82F6 100%);
-            padding: 2rem 1.5rem;
+            background: linear-gradient(90deg, rgba(37,99,235,0.7) 0%, rgba(59,130,246,0.7) 100%);
+            padding: 1rem 1.5rem;
             border-radius: 16px;
             margin-bottom: 2.5rem;
             box-shadow: 0 4px 16px rgba(37,99,235,0.10), 0 1.5px 6px rgba(0,0,0,0.04);
@@ -63,7 +63,7 @@ def main():
     )
 
     st.sidebar.markdown("---")
-    st.sidebar.header("Detected SQL Styles")
+    st.sidebar.header("Detected SQL Queries")
 
 
     if uploaded_file is not None:
@@ -207,7 +207,7 @@ def main():
             if temp_path.exists():
                 temp_path.unlink()
     else:
-        st.info("Upload a Python file to get started.")
+        pass
 
 if __name__ == "__main__":
     main()
