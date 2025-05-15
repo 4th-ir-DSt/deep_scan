@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # OpenAI Settings
     openai_api_key: str = ""  # This should be set in .env
-    openai_model: str = "gpt-4o"
+    openai_model: str = "gpt-4.1"
 
     def __init__(self, **kwargs):
         # Convert string lists to actual lists
