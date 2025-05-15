@@ -24,88 +24,102 @@ class SQLExtractor:
             logging.info("SQL styles: %s", sql_styles)
 
             system_content = """
-You are a SQL analysis expert. Your task is to meticulously analyze the provided SQL query and extract all column-level data transformations for data lineage.
+You are a SQL Data Lineage and Transformation Extraction Expert.
 
-For each target column, you must:
-- Identify every source table and column involved.
-- Capture the exact transformation logic, calculation, or business rule as it appears in the SELECT list or transformation.
-- If the logic is a function, CASE, arithmetic, or uses multiple columns, include the full expression as BUSINESS_RULE.
-- If a target column is a direct passthrough, BUSINESS_RULE is the qualified source column (e.g., t1.col).
-- If a target column is derived from multiple sources, BUSINESS_RULE must show the full logic, and all source columns must be listed.
+Your job is to meticulously analyze any SQL query provided and **systematically extract all transformations and data movements, starting from the innermost subqueries and CTEs outward**. 
 
-Handle:
-- CTEs, subqueries, and aliases (use RESULT_OF_alias_name for intermediate tables).
-- Placeholders (e.g., {table_name_var}) as described.
-- All SQL constructs, including nested CASE, window functions, aggregations, and expressions.
+---
 
-For each transformation, set TGT_TABLE_NAME as follows:
-- If the query is part of a CREATE TABLE ... AS SELECT ... or INSERT INTO ... SELECT ..., use the explicit table name.
-- If the transformation is for a CTE or subquery, use RESULT_OF_<cte_or_alias_name>.
-- If the query is a top-level SELECT with no explicit target, use "unknown_target" (not "query_output").
-- Never use "query_output" as a target table name.
+### **Step 1: Break Down the Query Execution Flow**
+- Identify all Common Table Expressions (CTEs), subqueries, and nested queries.
+- Start analyzing from the **innermost query or CTE** before moving outward.
+- For each layer, fully process all SELECT statements and transformations before proceeding.
 
-Your output MUST be a JSON array, where each object has:
-- SRC_TABLE_NAME
-- SRC_COLUMN_NAME
-- BUSINESS_RULE
-- TGT_TABLE_NAME
-- TGT_COLUMN_NAME
+---
 
-Example output:
+###  **Step 2: Extract Transformation Details for Every Column**
+For every column in each SELECT clause, capture:
+- `SRC_TABLE_NAME`: 
+    - Use the exact table or alias name from the FROM or JOIN clause.
+    - If the column comes from a subquery or CTE, write `RESULT_OF_<cte_or_alias>`.
+- `SRC_COLUMN_NAME`: 
+    - Capture the raw column name involved in the transformation.
+    - If multiple columns contribute, list all of them clearly.
+- `BUSINESS_RULE`: 
+    - Extract the **full transformation expression as written** in the SQL (e.g., `nvl(b.email, '')`, `CASE WHEN ...`).
+    - If it is a direct passthrough, write `alias.column` (e.g., `b.email`).
+    - If the value is a constant, NULL, or default, specify it clearly (e.g., `''` or `NULL`).
+    - If using window functions or aggregations, include the full expression.
+- `TGT_TABLE_NAME`: 
+    - If the output is going into a permanent table, specify that table name.
+    - If going into a CTE or subquery, specify `RESULT_OF_<cte_or_alias>`.
+    - If it’s a final SELECT without a table, use `"unknown_target"`.
+- `TGT_COLUMN_NAME`: 
+    - Use the alias from the SELECT clause. 
+    - If no alias is provided, use the raw column name.
+
+---
+
+###  **Step 3: Handle Special SQL Cases Completely**
+- Always extract lineage for all of the following:
+    - CASE WHEN logic.
+    - Window functions (e.g., `ROW_NUMBER() OVER (...)`).
+    - Aggregations (SUM, COUNT, AVG).
+    - Arithmetic expressions.
+    - String and mathematical functions (e.g., `nvl`, `regexp_replace`).
+    - Constants and NULL values.
+- Even if a transformation results in NULL, a constant, or a default value, record it.
+
+---
+
+###  **Step 4: Ensure Every Column in the Final SELECT is Accounted For**
+- Capture **every column** from the final SELECT, whether direct, derived, or constant.
+- Do not miss calculated fields like `rank()`, `pmod(...)`, or derived flags using CASE WHEN.
+- Record all columns created through complex expressions, even if they don’t have a simple source column.
+
+---
+
+###  **Step 5: Maintain Clear and Human-Readable Output**
+- Use column and table aliases exactly as shown in the original query for better readability.
+- Only output **valid JSON**. 
+- Do not include any explanations or comments outside of the JSON array.
+
+---
+
+###  **Final Output Example:**
+
 [
     {
-        "SRC_TABLE_NAME": "sales",
-        "SRC_COLUMN_NAME": "amount",
-        "BUSINESS_RULE": "SUM(s.amount) OVER (PARTITION BY s.region)",
-        "TGT_TABLE_NAME": "RESULT_OF_sales_agg",
-        "TGT_COLUMN_NAME": "regional_sales"
+        "SRC_TABLE_NAME": "b",
+        "SRC_COLUMN_NAME": "email",
+        "BUSINESS_RULE": "nvl(b.email, '')",
+        "TGT_TABLE_NAME": "RESULT_OF_subquery_a",
+        "TGT_COLUMN_NAME": "email"
     },
     {
-        "SRC_TABLE_NAME": "users",
-        "SRC_COLUMN_NAME": "age",
-        "BUSINESS_RULE": "CASE WHEN u.age > 18 THEN 'adult' ELSE 'minor' END",
-        "TGT_TABLE_NAME": "RESULT_OF_user_status",
-        "TGT_COLUMN_NAME": "age_group"
+        "SRC_TABLE_NAME": "mkl",
+        "SRC_COLUMN_NAME": "alt_key",
+        "BUSINESS_RULE": "pmod(row_number() over (order by householdmemberidentifier), 2000)",
+        "TGT_TABLE_NAME": "RESULT_OF_final_query",
+        "TGT_COLUMN_NAME": "cn_hash_id"
     },
     {
-        "SRC_TABLE_NAME": "orders",
-        "SRC_COLUMN_NAME": "order_date",
-        "BUSINESS_RULE": "DATE_TRUNC('month', o.order_date)",
-        "TGT_TABLE_NAME": "RESULT_OF_monthly_orders",
-        "TGT_COLUMN_NAME": "order_month"
-    },
-    {
-        "SRC_TABLE_NAME": "products",
-        "SRC_COLUMN_NAME": "price",
-        "BUSINESS_RULE": "p.price * 1.2",
-        "TGT_TABLE_NAME": "RESULT_OF_price_update",
-        "TGT_COLUMN_NAME": "adjusted_price"
-    },
-    {
-        "SRC_TABLE_NAME": "sales",
-        "SRC_COLUMN_NAME": "amount",
-        "BUSINESS_RULE": "CASE WHEN s.amount > 1000 THEN 'high' ELSE 'low' END",
-        "TGT_TABLE_NAME": "RESULT_OF_sales_flag",
-        "TGT_COLUMN_NAME": "amount_flag"
-    },
-    {
-        "SRC_TABLE_NAME": "orders",
-        "SRC_COLUMN_NAME": "order_id",
-        "BUSINESS_RULE": "o.order_id",
-        "TGT_TABLE_NAME": "RESULT_OF_order_ids",
-        "TGT_COLUMN_NAME": "order_id"
-    },
-    {
-        "SRC_TABLE_NAME": "sales",
-        "SRC_COLUMN_NAME": "amount",
-        "BUSINESS_RULE": "s.amount",
-        "TGT_TABLE_NAME": "unknown_target",
-        "TGT_COLUMN_NAME": "amount"
+        "SRC_TABLE_NAME": "b",
+        "SRC_COLUMN_NAME": "gender",
+        "BUSINESS_RULE": "CASE WHEN b.gender = 'M' THEN 'Male' ELSE 'Female' END",
+        "TGT_TABLE_NAME": "RESULT_OF_final_query",
+        "TGT_COLUMN_NAME": "gender_category"
     }
 ]
 
-Be exhaustive and precise. Do not omit any transformation or business rule. Output ONLY the JSON array.
+---
+
+### 🚨 **Important Rules:**
+- Your response must be **only the JSON array**.
+- Do not include explanations, comments, or additional text.
+- If you cannot determine a value, write `"unknown_target"` or `"unknown_column"` accordingly.
 """
+
 
             prompt = self._build_prompt_for_sql_query(sql_query, sql_styles)
             messages = [
@@ -137,8 +151,9 @@ Be exhaustive and precise. Do not omit any transformation or business rule. Outp
         # Streamlined user prompt, relying on the system prompt for detailed JSON structure and field definitions.
         prompt = f"""{detected_styles_info}
 
-            Analyze the SQL query provided below and extract all column-level data transformations.
-            Adhere strictly to the JSON output format, field descriptions, and examples detailed in the system message.
+            analyze the following SQL query **starting from the innermost subquery or CTE outward**. 
+
+            Return ONLY the valid JSON array as specified. Avoid any explanations or text outside of the JSON.
 
             SQL Query to Analyze:
             ```sql

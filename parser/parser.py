@@ -3,8 +3,8 @@ from typing import List, Dict, Any, Set
 from pathlib import Path
 import sqlparse
 import string
-from .config_handler import ConfigHandler
 import re
+import json
 
 
 class SQLStringExtractor(ast.NodeVisitor):
@@ -159,13 +159,92 @@ class SQLStringExtractor(ast.NodeVisitor):
 
 
 class CodeParser:
-    def __init__(self, config_file_path: str = None):
+    def __init__(self):
         self.imports: List[Dict[str, str]] = []
         self.raw_code: str = ""
         self.tree: ast.AST | None = None
-        self.config_handler = ConfigHandler(config_file_path)
-        if config_file_path:
-            self.config_handler.load_config()
+
+    def clean_json_data(self, json_str: str) -> str:
+        """
+        Clean JSON string by removing comments and ensuring proper formatting.
+        
+        Args:
+            json_str: The JSON string to clean
+            
+        Returns:
+            Cleaned JSON string
+        """
+        # Remove single line comments
+        json_str = re.sub(r'//.*$', '', json_str, flags=re.MULTILINE)
+        # Remove multi-line comments
+        json_str = re.sub(r'/\*.*?\*/', '', json_str, flags=re.DOTALL)
+        # Remove trailing commas
+        json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+        return json_str
+
+    def validate_lineage_data(self, lineage_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Validate lineage data and ensure all required fields are present.
+        
+        Args:
+            lineage_data: List of lineage entries
+            
+        Returns:
+            Validated lineage data with missing target tables handled
+            
+        Raises:
+            ValueError: If validation fails
+        """
+        validated_data = []
+        missing_target_tables = []
+        
+        for entry in lineage_data:
+            # Check if target table is missing or undefined
+            if not entry.get('TGT_TABLE_NAME') or entry.get('TGT_TABLE_NAME') == '{undefined}':
+                # If source table is RESULT_OF_inner_query, use the previous target table
+                if entry.get('SRC_TABLE_NAME') == 'RESULT_OF_inner_query':
+                    # Find the previous entry with a valid target table
+                    for prev_entry in reversed(validated_data):
+                        if prev_entry.get('TGT_TABLE_NAME') and prev_entry.get('TGT_TABLE_NAME') != '{undefined}':
+                            entry['TGT_TABLE_NAME'] = prev_entry['TGT_TABLE_NAME']
+                            break
+                    else:
+                        missing_target_tables.append(entry)
+                        continue
+                else:
+                    missing_target_tables.append(entry)
+                    continue
+            
+            validated_data.append(entry)
+        
+        if missing_target_tables:
+            error_msg = f"Found {len(missing_target_tables)} lineage row(s) with missing target table:\n"
+            for entry in missing_target_tables:
+                error_msg += f"- Source: {entry.get('SRC_TABLE_NAME')}, Column: {entry.get('SRC_COLUMN_NAME')}\n"
+            raise ValueError(error_msg)
+            
+        return validated_data
+
+    def parse_json(self, json_str: str) -> List[Dict[str, Any]]:
+        """
+        Parse JSON string with proper error handling and cleaning.
+        
+        Args:
+            json_str: The JSON string to parse
+            
+        Returns:
+            Parsed JSON data as a list of dictionaries
+            
+        Raises:
+            ValueError: If JSON parsing fails
+        """
+        try:
+            cleaned_json = self.clean_json_data(json_str)
+            parsed_data = json.loads(cleaned_json)
+            # Validate the lineage data
+            return self.validate_lineage_data(parsed_data)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Error parsing JSON: {str(e)}")
 
     def parse_file(self, file_path: str) -> Dict[str, Any]:
         """Parse a Python file and extract imports and raw code."""
@@ -246,22 +325,3 @@ class CodeParser:
             queries.add(match.group().strip())
 
         return list(queries)
-
-    def get_database_config(self, section_name: str) -> Dict[str, str]:
-        """Get database configuration for a specific section.
-        
-        Args:
-            section_name: Name of the configuration section (e.g. 'vn_dim', 'it_dim')
-            
-        Returns:
-            Dictionary of database configuration values
-        """
-        return self.config_handler.get_section(section_name)
-
-    def get_all_database_configs(self) -> Dict[str, Dict[str, str]]:
-        """Get all database configurations.
-        
-        Returns:
-            Dictionary of all database configuration sections and their values
-        """
-        return self.config_handler.get_all_sections()
