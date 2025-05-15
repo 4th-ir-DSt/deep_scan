@@ -2,7 +2,6 @@ import ast
 from typing import List, Dict, Any, Set, Optional, Tuple
 from pathlib import Path
 import sqlparse
-import string
 import re
 import json
 import configparser
@@ -26,6 +25,10 @@ class SQLStringExtractor(ast.NodeVisitor):
         self._sql_keywords = {'SELECT', 'INSERT', 'UPDATE', 'DELETE',
                               'CREATE', 'DROP', 'WITH', 'ALTER', 'TRUNCATE', 'MERGE', 'REPLACE'}
         self.raw_python_code = raw_python_code
+
+    def _escape_literal_braces(self, text: str) -> str:
+        """Escapes literal curly braces in a string for .format() compatibility."""
+        return text.replace('{', '{{').replace('}', '}}')
 
     def _is_sql_like(self, potential_sql: str) -> bool:
         """Checks if a string likely contains SQL keywords."""
@@ -51,75 +54,108 @@ class SQLStringExtractor(ast.NodeVisitor):
         return False
 
     def _add_sql(self, template: str, pos_args: Optional[List[ast.AST]] = None, kw_args: Optional[Dict[str, ast.AST]] = None, format_type: str = 'literal') -> None:
-        if self._is_sql_like(template):
-            # Sanitize template by removing typical Python newlines that aren't part of the SQL
-            # but keep those that might be intentionally in the SQL string itself.
-            # A simple strip and replace of \\n might be too aggressive if SQL has intentional newlines.
-            # sqlparse.format might help here if we want to standardize, but could alter original.
-            # For now, just basic cleaning.
-            # Python's \\n -> SQL's \n (if needed by formatter)
-            cleaned_template = template.strip().replace('\\\\n', '\\n')
+        # Performance: convert to upper once for the initial check
+        # The main _is_sql_like check will be on the final template string or its parts.
+        # For now, we are simplifying to check the whole template before cleaning.
+        # A more refined check might be needed if cleaning significantly changes SQL-likeness.
 
-            statements = sqlparse.split(cleaned_template)
-            for stmt in statements:
-                stmt_stripped = stmt.strip()
-                if not stmt_stripped:
-                    continue
-                # Re-check with _is_sql_like after splitting, as split might yield non-SQL fragments
-                if self._is_sql_like(stmt_stripped):
-                    # Convert list and dict to hashable types (tuple and tuple of items)
-                    hashable_pos_args = tuple(
-                        pos_args) if pos_args is not None else None
-                    hashable_kw_args = tuple(
-                        sorted(kw_args.items())) if kw_args is not None else None
+        # Basic cleaning applicable to all templates before SQL-likeness check or adding.
+        cleaned_template = template.strip().replace('\\n', '\n')
 
-                    self.extracted_sqls.add((
-                        stmt_stripped,
-                        hashable_pos_args,
-                        hashable_kw_args,
-                        format_type
-                    ))
+        # Check the whole cleaned template first
+        if not self._is_sql_like(cleaned_template):
+            return
+
+        # If it's a literal, its braces need to be escaped before being stored,
+        # as it won't be processed by .format() later to resolve placeholders.
+        # However, if it's a template for .format or an f-string, its placeholders
+        # should remain single-braced. The escaping of literal braces within those
+        # templates should happen when they are constructed.
+        # For now, the template string is stored as-is from parsing.
+        # The .format() call in CodeParser will handle it.
+        # The issue arises if the template *itself* has unescaped literal braces.
+
+        hashable_pos_args = tuple(pos_args) if pos_args is not None else None
+        hashable_kw_args = tuple(
+            sorted(kw_args.items())) if kw_args is not None else None
+
+        self.extracted_sqls.add((
+            cleaned_template,  # Store template as extracted
+            hashable_pos_args,
+            hashable_kw_args,
+            format_type
+        ))
+        logging.debug(
+            f"Added SQL entry (type: {format_type}): {cleaned_template[:100]}... with {len(pos_args or [])} pos args, {len(kw_args or [])} kw args")
 
     def visit_Str(self, node: ast.Str) -> None:
         if isinstance(node.s, str):
+            # For simple strings not part of .format() or f-string,
+            # they are treated as literal SQL. If they contain braces,
+            # those are literal braces in the SQL.
+            # No special escaping needed here for the template itself if it's a pure literal.
             self._add_sql(node.s, format_type='literal')
         self.generic_visit(node)
 
     def visit_Constant(self, node: ast.Constant) -> None:
         if isinstance(node.value, str):
+            # Similar to visit_Str for literal strings.
             self._add_sql(node.value, format_type='literal')
         self.generic_visit(node)
 
-    def visit_JoinedStr(self, node: ast.JoinedStr) -> None:
+    def visit_JoinedStr(self, node: ast.JoinedStr) -> None:  # f-string
         template_parts = []
         fstring_arg_nodes: List[ast.AST] = []
-
         placeholder_idx = 0
+
         for value_node in node.values:
             if isinstance(value_node, (ast.Constant, ast.Str)):
-                template_parts.append(value_node.s if isinstance(
-                    value_node, ast.Str) else value_node.value)
+                # Literal part of an f-string: escape its braces
+                literal_part = value_node.s if isinstance(
+                    value_node, ast.Str) else value_node.value
+                template_parts.append(
+                    self._escape_literal_braces(str(literal_part)))
             elif isinstance(value_node, ast.FormattedValue):
+                # This is a format placeholder like {var}
+                # We convert it to {0}, {1}, etc. These should NOT be escaped.
                 template_parts.append(f"{{{placeholder_idx}}}")
                 fstring_arg_nodes.append(value_node.value)
                 placeholder_idx += 1
 
         reconstructed_template = "".join(template_parts)
+        # This reconstructed_template now has its literal parts escaped,
+        # and its format placeholders as {0}, {1}, etc.
         self._add_sql(reconstructed_template, pos_args=fstring_arg_nodes,
                       kw_args=None, format_type='fstring')
         self.generic_visit(node)
 
-    def visit_Call(self, node: ast.Call) -> None:
+    def visit_Call(self, node: ast.Call) -> None:  # .format()
         if isinstance(node.func, ast.Attribute) and node.func.attr == 'format':
             string_node = node.func.value
             format_template_str = None
 
+            # Extract the template string for .format()
             if isinstance(string_node, ast.Str):
                 format_template_str = string_node.s
             elif isinstance(string_node, ast.Constant) and isinstance(string_node.value, str):
                 format_template_str = string_node.value
+            # Could also be another JoinedStr (f-string) like f"{...}".format()
+            # Or a variable holding a template string. This path gets complex.
+            # For now, handling direct string literals as format templates.
 
             if format_template_str is not None:
+                # The crucial step: escape literal braces in the template string
+                # for .format(), BUT leave the .format() placeholders ({}, {name}) intact.
+                # This is hard. Regex `re.sub(r'(?<!{){(?!{)|(?<!})}(?!})', lambda m: '{{' if m.group(0) == '{' else '}}', s)`
+                # might work but is complex.
+                # A simpler assumption: Python's .format requires users to manually escape
+                # literal braces as {{ and }}. So, we assume format_template_str is authored correctly.
+                # The main source of unescaped braces breaking .format() would be if we *constructed*
+                # this template incorrectly.
+                # Given that we take it directly from the AST, the user's original string is used.
+                # If THEIR string has unescaped literal braces, their .format() call would break in Python too.
+                # So, we will NOT escape format_template_str here, assuming it's valid for Python's .format().
+
                 pos_arg_nodes = list(node.args)
                 kw_arg_nodes_map = {
                     kw.arg: kw.value for kw in node.keywords if kw.arg}
@@ -397,22 +433,21 @@ class CodeParser:
         extractor.visit(self.tree)
         return list(extractor.extracted_sqls)
 
-    def _resolve_ast_node_value(self, node: ast.AST, parsed_config_data: Optional[configparser.ConfigParser], config_obj_name_in_script: str) -> str:
+    def _resolve_ast_node_value(self, node: ast.AST, parsed_config_data: Optional[configparser.ConfigParser], config_obj_name_in_script: str) -> Any:
         """
-        Resolves an AST node to a string representation suitable for inclusion as an argument
-        in a reconstructed .format() call.
-        - Literals (strings, numbers, bools, None) are repr'd.
-        - Variables resolved from config are repr'd (as strings).
-        - Unresolved variables become their name (unquoted).
-        - Other complex nodes become a repr'd placeholder string.
+        Resolves an AST node to an actual Python value (str, int, float, bool, None)
+        or a string placeholder like "{var_name}" or "{UNRESOLVED_ARG_...}"
+        for use in a .format() call.
         """
         if isinstance(node, ast.Constant):
             # Handles str, int, float, bool, None
-            logging.debug(f"Resolved ast.Constant to: {repr(node.value)}")
-            return repr(node.value)
+            logging.debug(
+                f"Resolved ast.Constant to value: {node.value} (type: {type(node.value)})")
+            return node.value
         elif isinstance(node, ast.Str):  # Python < 3.8 string literals
-            logging.debug(f"Resolved ast.Str to: {repr(node.s)}")
-            return repr(node.s)
+            logging.debug(
+                f"Resolved ast.Str to value: {node.s} (type: {type(node.s)})")
+            return node.s
         elif isinstance(node, ast.Name):
             var_name = node.id
             if parsed_config_data and config_obj_name_in_script and self.tree:
@@ -426,34 +461,44 @@ class CodeParser:
 
                     if actual_value_str is not None:
                         logging.debug(
-                            f"Resolved variable '{var_name}' from config (section: {section}, key: {key}) to value: '{actual_value_str}'. Representing as: {repr(actual_value_str)}.")
-                        # Value from config, repr'd
-                        return repr(actual_value_str)
+                            f"Resolved variable '{var_name}' from config (section: {section}, key: {key}) to value: '{actual_value_str}'.")
+                        # Actual value from config (string)
+                        return actual_value_str
                     else:
+                        # Config assignment pattern found, but key not in config file
                         logging.warning(
-                            f"Config lookup: Variable '{var_name}' (section: {section}, key: {key}) not found in config. Using variable name '{var_name}' directly.")
-                        return var_name  # Fallback to variable name itself, unquoted
+                            f"Config lookup: Variable '{var_name}' (section: {section}, key: {key}) not found in config. Using placeholder '{{{var_name}}}'.")
+                        return f"{{{var_name}}}"  # Return as "{var_name}"
 
             # Not assigned from config pattern or prerequisites missing for config lookup
             logging.info(
-                f"Variable '{var_name}' not resolved from config or not a config pattern. Using variable name '{var_name}' directly.")
-            return var_name  # Fallback to variable name itself, unquoted
+                f"Variable '{var_name}' not resolved from config or not a config pattern. Using placeholder '{{{var_name}}}'.")
+            return f"{{{var_name}}}"  # Return as "{var_name}"
         else:
             # For other node types (e.g., complex expressions, function calls)
-            placeholder_text = f"UNRESOLVED_ARG<{type(node).__name__}>"
+            # Generate a placeholder like "{UNRESOLVED_ARG_Call}"
+            # Ensure placeholder is string.format compatible (no lone braces from content)
+            source_repr_cleaned = type(node).__name__
             try:
                 if self.raw_code:
                     segment = ast.get_source_segment(self.raw_code, node)
                     if segment and len(segment) < 30:  # Keep it reasonably short
-                        segment_cleaned = re.sub(r'\\s+', ' ', segment).strip()
-                        placeholder_text = f"UNRESOLVED_ARG<{type(node).__name__}:{segment_cleaned}>"
+                        # Escape braces from the segment itself to avoid format issues
+                        escaped_segment = segment.replace(
+                            '{', '{{').replace('}', '}}')
+                        source_repr_cleaned = f"{type(node).__name__}:{escaped_segment}"
             except Exception:
-                pass  # Stick with simpler placeholder
+                pass  # Stick with type name if get_source_segment fails
 
+            # Sanitize for use as a placeholder name
+            placeholder_name_core = re.sub(
+                r'[^a-zA-Z0-9_]', '_', source_repr_cleaned)
+            placeholder_name_core = placeholder_name_core[:40]  # Limit length
+
+            final_placeholder = f"{{UNRESOLVED_ARG_{placeholder_name_core}}}"
             logging.warning(
-                f"Argument AST node type {type(node).__name__} is not a simple variable or literal. Using placeholder: '{placeholder_text}'. Representing as: {repr(placeholder_text)}.")
-            # Return as a string literal placeholder
-            return repr(placeholder_text)
+                f"Argument AST node type {type(node).__name__} ('{source_repr_cleaned}') is not a simple variable or literal. Using placeholder '{final_placeholder}'.")
+            return final_placeholder
 
     def resolve_and_format_sql_queries(
         self,
@@ -470,42 +515,77 @@ class CodeParser:
             return final_sql_queries_to_process
 
         logging.info(
-            f"Constructing string representations for {len(extracted_sqls_with_args)} SQL templates...")
+            f"Resolving and formatting {len(extracted_sqls_with_args)} SQL templates...")
 
         for i, (template_str, pos_args_tuple, kw_args_tuple_of_items, format_type) in enumerate(extracted_sqls_with_args):
+
+            fully_resolved_or_original_template_sql: str
             if format_type == 'literal':
-                # For pure SQL literals, no .format() call to reconstruct
-                final_sql_queries_to_process.append(template_str)
-                logging.debug(
-                    f"Template {i+1} is a literal: {template_str[:100]}...")
-                continue
+                fully_resolved_or_original_template_sql = template_str
+                logging.debug(f"Template entry {i+1} is a literal SQL.")
+            else:
+                resolved_pos_args_values = []
+                if pos_args_tuple:
+                    for arg_node in pos_args_tuple:
+                        val = self._resolve_ast_node_value(
+                            arg_node, parsed_config_data, config_obj_name_in_script)
+                        resolved_pos_args_values.append(val)
 
-            # For .format() calls and f-strings, reconstruct the call as a string
+                resolved_kw_args_values_dict = {}
+                if kw_args_tuple_of_items:
+                    for name, arg_node in kw_args_tuple_of_items:
+                        val = self._resolve_ast_node_value(
+                            arg_node, parsed_config_data, config_obj_name_in_script)
+                        resolved_kw_args_values_dict[name] = val
 
-            resolved_pos_args_str_list = []
-            if pos_args_tuple:
-                for arg_node in pos_args_tuple:
-                    val_str_repr = self._resolve_ast_node_value(
-                        arg_node, parsed_config_data, config_obj_name_in_script)
-                    resolved_pos_args_str_list.append(val_str_repr)
+                try:
+                    # Attempt to format the SQL string using the resolved values
+                    fully_resolved_or_original_template_sql = template_str.format(
+                        *resolved_pos_args_values, **resolved_kw_args_values_dict)
+                    logging.debug(
+                        f"Successfully formatted SQL for template entry {i+1} (Type: {format_type}): {fully_resolved_or_original_template_sql[:200]}...")
+                except (KeyError, IndexError, ValueError) as e:
+                    logging.error(
+                        f"Formatting error (Key/Index/Value) for template entry {i+1} (Type: {format_type}): {e}")
+                    logging.debug(f"Template: {template_str}")
+                    logging.debug(
+                        f"Resolved Positional Args Values: {resolved_pos_args_values}")
+                    logging.debug(
+                        f"Resolved Keyword Args Values: {resolved_kw_args_values_dict}")
+                    fully_resolved_or_original_template_sql = template_str  # Fallback
+                    logging.warning(
+                        f"Falling back to original template string for entry {i+1} due to formatting error.")
+                except Exception as e_general:
+                    logging.error(
+                        f"An unexpected error occurred during .format() for template entry {i+1} (Type: {format_type}): {e_general}"
+                    )
+                    logging.debug(f"Template: {template_str}")
+                    logging.debug(
+                        f"Resolved Positional Args Values: {resolved_pos_args_values}")
+                    logging.debug(
+                        f"Resolved Keyword Args Values: {resolved_kw_args_values_dict}")
+                    fully_resolved_or_original_template_sql = template_str  # Fallback
+                    logging.warning(
+                        f"Falling back to original template string for entry {i+1} due to general formatting error.")
 
-            resolved_kw_args_str_list = []
-            if kw_args_tuple_of_items:
-                for name, arg_node in kw_args_tuple_of_items:
-                    val_str_repr = self._resolve_ast_node_value(
-                        arg_node, parsed_config_data, config_obj_name_in_script)
-                    resolved_kw_args_str_list.append(f"{name}={val_str_repr}")
-
-            all_args_parts = resolved_pos_args_str_list + resolved_kw_args_str_list
-            args_str_for_format_call = ", ".join(all_args_parts)
-
-            # The template_str itself is a Python string, so it needs repr() in the reconstructed expression
-            reconstructed_call_str = f"{repr(template_str)}.format({args_str_for_format_call})"
-
-            logging.debug(
-                f"Constructed representation for template entry {i+1} (Type: {format_type}): {reconstructed_call_str[:200]}...")
-            final_sql_queries_to_process.append(reconstructed_call_str)
+            # Now, split the (either formatted or fallback) SQL string into individual statements
+            # This ensures that the LLM receives one SQL statement at a time if they were combined.
+            if fully_resolved_or_original_template_sql:  # Ensure it's not empty
+                statements = sqlparse.split(
+                    fully_resolved_or_original_template_sql)
+                for stmt_idx, stmt_text in enumerate(statements):
+                    stmt_stripped = stmt_text.strip()
+                    if stmt_stripped:  # Add if not empty after stripping
+                        # Re-check with _is_sql_like after splitting and formatting, as it might yield non-SQL fragments or resolved to something not SQL-like
+                        # However, for now, we trust that if the original template was SQL-like, its formatted version (or itself on error) is intended for processing.
+                        # A stricter check here might be `if self._is_sql_like(stmt_stripped):` but could filter out valid intermediate results or DDL.
+                        final_sql_queries_to_process.append(stmt_stripped)
+                        logging.debug(
+                            f"Adding statement {stmt_idx+1} from entry {i+1} to final processing list: {stmt_stripped[:150]}...")
+            else:
+                logging.warning(
+                    f"Template entry {i+1} resulted in an empty string after formatting/fallback; not adding to processing list.")
 
         logging.info(
-            f"Finished constructing representations for {len(extracted_sqls_with_args)} SQL templates.")
+            f"Finished resolving, formatting, and splitting. Total individual SQL statements to process: {len(final_sql_queries_to_process)}.")
         return final_sql_queries_to_process

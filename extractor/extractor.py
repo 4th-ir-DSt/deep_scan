@@ -39,8 +39,8 @@ class SQLExtractor:
                 ###  **Step 2: Extract Transformation Details for Every Column**
                 For every column in each SELECT clause, capture:
                 - `SRC_TABLE_NAME`: 
-                    - Use the exact table or alias name from the FROM or JOIN clause.
-                    - If the column comes from a subquery or CTE, write `RESULT_OF_<cte_or_alias>`.
+                    - If the column originates directly from a base table (i.e., not a CTE or subquery), use the **actual, unaliased name of that base table**. Resolve any aliases used in FROM/JOIN clauses back to their original table names.
+                    - If the column originates from a Common Table Expression (CTE) or a subquery, use `RESULT_OF_<cte_or_subquery_alias>`.
                 - `SRC_COLUMN_NAME`: 
                     - Capture the raw column name involved in the transformation.
                     - If multiple columns contribute, list all of them clearly.
@@ -52,7 +52,7 @@ class SQLExtractor:
                 - `TGT_TABLE_NAME`: 
                     - If the output is going into a permanent table, specify that table name.
                     - If going into a CTE or subquery, specify `RESULT_OF_<cte_or_alias>`.
-                    - If it’s a final SELECT without a table, use `"unknown_target"`.
+                    - If it's a final SELECT without a table, use `"unknown_target"`.
                 - `TGT_COLUMN_NAME`: 
                     - Use the alias from the SELECT clause. 
                     - If no alias is provided, use the raw column name.
@@ -74,7 +74,7 @@ class SQLExtractor:
                 ###  **Step 4: Ensure Every Column in the Final SELECT is Accounted For**
                 - Capture **every column** from the final SELECT, whether direct, derived, or constant.
                 - Do not miss calculated fields like `rank()`, `pmod(...)`, or derived flags using CASE WHEN.
-                - Record all columns created through complex expressions, even if they don’t have a simple source column.
+                - Record all columns created through complex expressions, even if they don't have a simple source column.
 
                 ---
 
@@ -117,7 +117,6 @@ class SQLExtractor:
                 - Your response must be **only the JSON array**.
                 - Do not include explanations, comments, or additional text.
             """
-
 
             prompt = self._build_prompt_for_sql_query(sql_query, sql_styles)
             messages = [
