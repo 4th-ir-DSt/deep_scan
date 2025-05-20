@@ -6,7 +6,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 import re
-import ast
+# import ast # Not directly used in app.py, can be removed if not needed elsewhere implicitly
+import tempfile # --- ADDED ---
 
 # Get the absolute path to the project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -26,8 +27,8 @@ except ImportError as e:
     st.stop()
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, # Changed to INFO for production, DEBUG is verbose
+                    format='%(asctime)s - %(levelname)s - %(module)s - %(funcName)s - %(message)s')
 
 
 def main():
@@ -37,7 +38,6 @@ def main():
         layout="wide"
     )
 
-    # Add a visually appealing, modern header
     st.markdown(
         """
         <div style='
@@ -71,100 +71,95 @@ def main():
         type=["ini", "cfg"]
     )
 
-    # Initialize detected_config_obj_name before it's potentially set
-    detected_config_obj_name = "config_op_obj"  # Default value
+    detected_config_obj_name = "config_op_obj"
     detected_config_obj_names_list = []
+    parser = CodeParser()
 
-    parser = CodeParser()  # Instantiate parser early to use for detection
-
-    # Temp path handling for config object detection needs to happen before text_input if script is uploaded
-    # However, the full script parsing for SQL extraction will happen later as before.
-    # This is a bit tricky as we need the tree for detection but full processing later.
-    # For now, let's assume detection happens IF a file is uploaded, then the text input is created.
+    # --- MODIFIED: Temp file for config object detection ---
+    temp_detect_file_path_str = None # Initialize
+    # --- END MODIFIED ---
 
     if uploaded_file is not None:
-        # Perform a preliminary parse just for config object detection
-        # This is a bit redundant with the later full parse, but necessary to get the detected name *before* text_input
-        # To avoid issues with temp_path being deleted too early, we might need to manage its lifecycle carefully
-        # or pass the raw script content if the parser can take it directly for this limited detection task.
-        # For simplicity now, let's re-read if necessary, or ensure parser.parse_file can be called multiple times safely.
-
-        # Read content for detection without saving to temp_path yet, or use a temporary instance of parser
-        # to avoid state conflicts if parse_file has side effects beyond setting self.tree and self.raw_code.
         try:
-            # We need the AST for detection. We'll parse fully later.
-            # To avoid issues, parse to a temp var or make parse_file re-entrant.
-            # Let's make parse_file store the tree on the instance, which is fine.
-            script_content_for_detection = uploaded_file.getvalue().decode('utf-8')
-            # Create a temporary parser instance for detection to avoid state issues
-            # or ensure parse_file is safe to call multiple times if it resets state.
-            # For now, let parser.parse_file set self.tree and self.raw_code. This will be overwritten later if needed.
-
-            # Create a temporary path for this initial parsing step if parser requires a file path
-            temp_detect_path = Path("temp") / f"detect_{uploaded_file.name}"
-            temp_detect_path.parent.mkdir(exist_ok=True, parents=True)
-            temp_detect_path.write_bytes(uploaded_file.getvalue())
-
-            parser.parse_file(str(temp_detect_path))  # This sets parser.tree
+            # --- MODIFIED: Use tempfile for detection phase ---
+            with tempfile.NamedTemporaryFile(mode="wb", suffix=f"_{uploaded_file.name}", delete=False) as tmp_script_file_detect:
+                tmp_script_file_detect.write(uploaded_file.getvalue())
+                temp_detect_file_path_str = tmp_script_file_detect.name
+            
+            # Create a fresh parser instance or ensure state is reset if using the same one
+            # For simplicity, we use the existing 'parser' instance and parse_file should reset its internal state (raw_code, tree)
+            parser.parse_file(temp_detect_file_path_str)
             detected_config_obj_names_list = parser.detect_config_object_names()
             if detected_config_obj_names_list:
-                # Use the first detected name as default
                 detected_config_obj_name = detected_config_obj_names_list[0]
                 if len(detected_config_obj_names_list) > 1:
                     st.sidebar.caption(
                         f"Detected multiple config objects: {', '.join(detected_config_obj_names_list)}. Using '{detected_config_obj_name}'.")
             else:
-                st.sidebar.caption(
-                    "Could not auto-detect config object name. Please specify if needed.")
-
-            if temp_detect_path.exists():  # Clean up the temporary detection file
-                temp_detect_path.unlink()
-
+                st.sidebar.caption("Could not auto-detect config object name. Please specify if needed.")
+            # --- END MODIFIED ---
         except Exception as e_detect:
             st.sidebar.warning(
                 f"Could not auto-detect config object name due to error: {e_detect}")
-            # Default value remains "config_op_obj"
+        finally:
+            # --- MODIFIED: Clean up temp detection file ---
+            if temp_detect_file_path_str and Path(temp_detect_file_path_str).exists():
+                try:
+                    Path(temp_detect_file_path_str).unlink()
+                except OSError as e_unlink:
+                    logging.error(f"Error deleting temp detection file {temp_detect_file_path_str}: {e_unlink}")
+            # --- END MODIFIED ---
+
 
     config_obj_name_in_script = st.sidebar.text_input(
         "Config Object Name in Python Script",
-        value=detected_config_obj_name,  # Pre-fill with detected or default
+        value=detected_config_obj_name,
         help="The name of the variable in your Python script that holds the parsed configuration, e.g., `config_op_obj`."
     )
 
     st.sidebar.markdown("---")
-    st.sidebar.header("Detected SQL Information")
+    
 
     parsed_config_data = None
     if config_file_uploader is not None:
         try:
             config_content = config_file_uploader.read().decode()
-            parsed_config_data = parser.parse_config_file(config_content)
+            # Re-instantiate parser or ensure parse_config_file doesn't depend on prior parse_file state
+            # For now, assuming parser.parse_config_file is independent.
+            config_parser_instance = CodeParser() # Use a fresh instance for config parsing if unsure
+            parsed_config_data = config_parser_instance.parse_config_file(config_content)
             st.sidebar.success("Configuration file parsed.")
-        except Exception as e:
+        except Exception as e: # Catches configparser.Error re-raised from parse_config_file
             st.sidebar.error(f"Error parsing config file: {e}")
+            parsed_config_data = None # Ensure it's None on error
+
+
+    st.sidebar.header("Detected SQL Information") # Moved for better flow
+
+    # --- MODIFIED: Temp file for main processing ---
+    temp_main_process_file_path_str = None
+    # --- END MODIFIED ---
 
     if uploaded_file is not None:
-        # Reset uploaded_file internal pointer to the beginning for the main parsing pass
-        uploaded_file.seek(0)
-        # Main temp file for full processing
-        temp_path = Path("temp") / uploaded_file.name
-        temp_path.parent.mkdir(exist_ok=True, parents=True)
-        temp_path.write_bytes(uploaded_file.getvalue())
-
+        uploaded_file.seek(0) # Reset pointer for re-reading
         try:
-            # Main parsing pass using the (now potentially different) parser instance state
-            parser.parse_file(str(temp_path))
+            # --- MODIFIED: Use tempfile for main processing pass ---
+            with tempfile.NamedTemporaryFile(mode="wb", suffix=f"_{uploaded_file.name}", delete=False) as tmp_script_file_main:
+                tmp_script_file_main.write(uploaded_file.getvalue())
+                temp_main_process_file_path_str = tmp_script_file_main.name
+            
+            # Use the main 'parser' instance, parse_file will overwrite its state
+            parser.parse_file(temp_main_process_file_path_str)
+            # --- END MODIFIED ---
+
             sql_styles = parser.get_sql_style()
-            # This now returns tuples where pos_args is a tuple and kw_args is a tuple of items
             extracted_sqls_with_args = parser.get_extracted_sql_queries_with_args()
 
-            # Display SQL styles
             if sql_styles:
                 st.sidebar.write("Detected SQL Styles:")
                 for style in sql_styles:
                     st.sidebar.caption(style)
-
-            # Display extracted query templates
+            
             if extracted_sqls_with_args:
                 st.sidebar.markdown(
                     f"### Extracted {len(extracted_sqls_with_args)} SQL Entries (Templates + Args)")
@@ -172,20 +167,16 @@ def main():
                     with st.sidebar.expander(f"SQL Entry {i+1} (Type: {fmt_type})"):
                         st.code(template, language='sql')
                         if pos_args_tuple:
-                            st.caption(
-                                f"{len(pos_args_tuple)} positional arg(s) found. Trigger Run for resolution.")
+                            st.caption(f"{len(pos_args_tuple)} positional arg(s) found.")
                         if kw_args_tuple_of_items:
-                            st.caption(
-                                f"{len(kw_args_tuple_of_items)} keyword arg(s) found. Trigger Run for resolution.")
+                            st.caption(f"{len(kw_args_tuple_of_items)} keyword arg(s) found.")
             else:
-                st.sidebar.warning(
-                    "No SQL query entries were extracted from the file.")
+                st.sidebar.warning("No SQL query entries were extracted from the file.")
 
             if st.sidebar.button("Run Lineage Extraction"):
                 if not extracted_sqls_with_args:
-                    st.warning(
-                        "No SQL query entries to process. Cannot run lineage extraction.")
-                    return
+                    st.warning("No SQL query entries to process. Cannot run lineage extraction.")
+                    st.stop() # Use st.stop() instead of return for Streamlit
 
                 final_sql_queries_to_process = parser.resolve_and_format_sql_queries(
                     extracted_sqls_with_args,
@@ -193,85 +184,81 @@ def main():
                     config_obj_name_in_script
                 )
 
-                logging.info(
-                    f"Proceeding to analyze {len(final_sql_queries_to_process)} SQL queries.")
+                logging.info(f"Proceeding to analyze {len(final_sql_queries_to_process)} SQL queries.")
                 with st.expander("Final SQL Queries for Lineage Analysis", expanded=False):
-                    for i, final_sql_output_str in enumerate(final_sql_queries_to_process):
-                        # Determine language for syntax highlighting
-                        # If it's a representation of a Python .format() call, use 'python'
-                        # Otherwise, assume it's a direct SQL query and use 'sql'
-                        display_lang = 'sql'  # Default for literal SQL
-                        # Check if it looks like a Python .format() string representation
-                        if (final_sql_output_str.startswith("'") or final_sql_output_str.startswith('"')) and \
-                           ".format(" in final_sql_output_str:
-                            # This heuristic identifies strings like '"SQL".format(args)'
-                            display_lang = 'python'
-
-                        st.code(final_sql_output_str, language=display_lang)
+                    for final_sql_output_str in final_sql_queries_to_process:
+                        st.code(final_sql_output_str, language='sql')
 
                 with st.spinner("Analyzing resolved SQL queries for lineage..."):
                     extractor = SQLExtractor()
                     all_lineage_operations = []
                     error_count = 0
                     for i, sql_query in enumerate(final_sql_queries_to_process):
-                        logging.info(
-                            f"Processing SQL Query {i+1} of {len(final_sql_queries_to_process)} with model...")
+                        logging.info(f"Processing SQL Query {i+1}/{len(final_sql_queries_to_process)} with model...")
                         try:
                             operations_str_for_query = extractor.extract_transformations_from_sql_query(
                                 sql_query,
                                 sql_styles
                             )
+                            # --- MODIFIED: Robust JSON parsing ---
                             sanitized_output = operations_str_for_query.strip()
-                            sanitized_output = re.sub(
-                                r'^```json|```$', '', sanitized_output, flags=re.MULTILINE).strip()
-                            start = sanitized_output.find('[')
-                            end = sanitized_output.rfind(']')
-                            if start != -1 and end != -1 and end > start:
-                                json_str = sanitized_output[start:end+1]
-                            else:
-                                json_str = sanitized_output
+                            cleaned_json_str = re.sub(r'^```json|```$', '', sanitized_output, flags=re.MULTILINE).strip()
+                            
+                            parsed_json_data = None
                             try:
-                                current_query_operations = json.loads(json_str)
-                            except json.JSONDecodeError as e_json:
-                                error_count += 1
-                                st.error(
-                                    f"Error parsing JSON from model output for query {i+1}: {e_json}")
-                                st.code(sanitized_output, language='text')
-                                current_query_operations = []
+                                # Attempt to parse the cleaned string directly
+                                parsed_json_data = json.loads(cleaned_json_str)
+                            except json.JSONDecodeError:
+                                # Fallback: if direct parsing fails, try to find the outermost array
+                                try:
+                                    start_index = cleaned_json_str.find('[')
+                                    end_index = cleaned_json_str.rfind(']')
+                                    if start_index != -1 and end_index != -1 and end_index > start_index:
+                                        json_array_str = cleaned_json_str[start_index:end_index+1]
+                                        parsed_json_data = json.loads(json_array_str)
+                                    else:
+                                        # If no array found, re-raise to be caught by the outer except
+                                        raise json.JSONDecodeError("No valid JSON array found with fallback", cleaned_json_str, 0) 
+                                except json.JSONDecodeError as e_json_fallback:
+                                    error_count += 1
+                                    st.error(f"Error parsing JSON from model output for query {i+1}: {e_json_fallback}")
+                                    st.code(operations_str_for_query, language='text') # Show original LLM output
+                                    continue # Skip to next query
+                            # --- END MODIFIED ---
 
-                            if isinstance(current_query_operations, list):
-                                all_lineage_operations.extend(
-                                    current_query_operations)
-                            elif current_query_operations:
+                            if isinstance(parsed_json_data, list):
+                                # --- ADDED: Validate lineage data from LLM ---
+                                try:
+                                    # Assuming 'parser' is the CodeParser instance
+                                    validated_operations = parser.validate_lineage_data(parsed_json_data)
+                                    all_lineage_operations.extend(validated_operations)
+                                except ValueError as e_validation:
+                                    error_count += 1
+                                    st.error(f"Validation error for lineage data from query {i+1}: {e_validation}")
+                                    logging.warning(f"Lineage data from query {i+1} failed validation: {parsed_json_data}")
+                                # --- END ADDED ---
+                            elif parsed_json_data: # If not a list but not empty (e.g. a single dict)
                                 error_count += 1
-                                st.warning(
-                                    f"Expected a list of operations from query {i+1}, but got {type(current_query_operations)}. Skipping results.")
-                                logging.warning(
-                                    f"Non-list output for query {i+1}: {current_query_operations}")
+                                st.warning(f"Expected a list of operations from query {i+1}, but got {type(parsed_json_data)}. Skipping results.")
+                                logging.warning(f"Non-list output for query {i+1}: {parsed_json_data}")
+
                         except Exception as e_main_proc:
                             error_count += 1
-                            st.error(
-                                f"Error processing query {i+1} (model extraction stage): {e_main_proc}")
-                            logging.error(
-                                f"Problematic SQL for query {i+1}:\n{sql_query}")
-
+                            st.error(f"Error processing query {i+1} (model extraction stage): {e_main_proc}")
+                            logging.error(f"Problematic SQL for query {i+1}:\n{sql_query}", exc_info=True)
+                    
                     logging.info("All queries processed by model.")
 
                     if not all_lineage_operations and error_count == 0:
-                        st.warning(
-                            "Lineage extraction ran, but no lineage operations were derived from the SQL queries.")
+                        st.warning("Lineage extraction ran, but no lineage operations were derived.")
                     elif not all_lineage_operations and error_count > 0:
-                        st.error(
-                            f"Lineage extraction attempted, but no operations derived and {error_count} error(s) occurred during processing.")
+                        st.error(f"Lineage extraction attempted, but no operations derived and {error_count} error(s) occurred.")
                     elif all_lineage_operations:
-                        st.success(
-                            f"Successfully extracted {len(all_lineage_operations)} lineage operation(s).")
+                        st.success(f"Successfully extracted {len(all_lineage_operations)} lineage operation(s).")
 
-                    if all_lineage_operations:  # Only show tabs if there's data
-                        result = {
-                            "column_level_lineage": all_lineage_operations}
-                        tab1, tab2, tab3 = st.tabs(
-                            ["JSON Output", "Table Preview", "Download"])
+                    if all_lineage_operations:
+                        result = {"column_level_lineage": all_lineage_operations}
+                        tab1, tab2, tab3 = st.tabs(["JSON Output", "Table Preview", "Download"])
                         with tab1:
                             st.json(result, expanded=False)
                         with tab2:
@@ -285,37 +272,57 @@ def main():
                             json_dl_str = json.dumps(result, indent=2)
                             st.download_button(
                                 "Download JSON", json_dl_str, file_name=f"lineage_extract_{timestamp}.json", mime="application/json")
+                            
                             df_download = pd.DataFrame(all_lineage_operations)
                             if not df_download.empty:
                                 csv = df_download.to_csv(index=False)
                                 st.download_button(
                                     "Download CSV", csv, file_name=f"lineage_extract_{timestamp}.csv", mime="text/csv")
-                                excel_file_name = f"lineage_extract_{timestamp}.xlsx"
-                                excel_temp_path = temp_path.parent / excel_file_name
+                                
+                                # --- MODIFIED: Temp file for Excel export ---
+                                excel_temp_file_path_str = None
                                 try:
-                                    with pd.ExcelWriter(excel_temp_path, engine='openpyxl') as writer:
-                                        df_download.to_excel(
-                                            writer, index=False)
-                                    with open(excel_temp_path, "rb") as f_excel:
-                                        st.download_button("Download Excel", f_excel, file_name=excel_file_name,
+                                    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_excel_file:
+                                        excel_temp_file_path_str = tmp_excel_file.name
+                                    
+                                    # Pandas ExcelWriter needs a path, it will create/overwrite the file.
+                                    # So, we use the temp file path obtained above.
+                                    with pd.ExcelWriter(excel_temp_file_path_str, engine='openpyxl') as writer:
+                                        df_download.to_excel(writer, index=False)
+                                    
+                                    with open(excel_temp_file_path_str, "rb") as f_excel:
+                                        st.download_button("Download Excel", f_excel, file_name=f"lineage_extract_{timestamp}.xlsx",
                                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                                 except Exception as e_excel:
-                                    st.error(
-                                        f"Error preparing Excel file: {e_excel}")
+                                    st.error(f"Error preparing Excel file: {e_excel}")
                                 finally:
-                                    if excel_temp_path.exists():
-                                        excel_temp_path.unlink()
+                                    if excel_temp_file_path_str and Path(excel_temp_file_path_str).exists():
+                                        try:
+                                            Path(excel_temp_file_path_str).unlink()
+                                        except OSError as e_unlink_excel:
+                                            logging.error(f"Error deleting temp Excel file {excel_temp_file_path_str}: {e_unlink_excel}")
+                                # --- END MODIFIED ---
                             else:
                                 st.info("No data to download for CSV/Excel.")
+        except ValueError as ve: # Catch syntax errors from parser.parse_file
+             st.error(f"Error processing Python file: {str(ve)}")
+             logging.exception("ValueError during file processing UI:")
+        except FileNotFoundError as fnfe:
+             st.error(f"Error: {str(fnfe)}")
+             logging.exception("FileNotFoundError during file processing UI:")
         except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
+            st.error(f"An unexpected error occurred: {str(e)}")
             logging.exception("Error in file processing UI:")
         finally:
-            if 'temp_path' in locals() and temp_path.exists():
-                temp_path.unlink()
+            # --- MODIFIED: Clean up main processing temp file ---
+            if temp_main_process_file_path_str and Path(temp_main_process_file_path_str).exists():
+                try:
+                    Path(temp_main_process_file_path_str).unlink()
+                except OSError as e_unlink_main:
+                    logging.error(f"Error deleting temp main process file {temp_main_process_file_path_str}: {e_unlink_main}")
+            # --- END MODIFIED ---
     else:
         st.info("Upload a Python file and optionally a configuration file to begin.")
-
 
 if __name__ == "__main__":
     main()
