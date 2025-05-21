@@ -6,8 +6,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 import re
-# import ast # Not directly used in app.py, can be removed if not needed elsewhere implicitly
-import tempfile # --- ADDED ---
+import tempfile # For secure temporary file handling
 
 # Get the absolute path to the project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -19,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 try:
     from config.settings import settings
     from parser.parser import CodeParser
-    from extractor.extractor import SQLExtractor
+    from extractor.extractor import SQLExtractor # Assuming this is set for OpenAI
 except ImportError as e:
     st.error(f"Error importing modules: {str(e)}")
     st.error(f"Python path: {sys.path}")
@@ -27,7 +26,7 @@ except ImportError as e:
     st.stop()
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, # Changed to INFO for production, DEBUG is verbose
+logging.basicConfig(level=logging.INFO, # Set to DEBUG for more verbose logs if needed
                     format='%(asctime)s - %(levelname)s - %(module)s - %(funcName)s - %(message)s')
 
 
@@ -38,6 +37,7 @@ def main():
         layout="wide"
     )
 
+    # --- Header Markdown ---
     st.markdown(
         """
         <div style='
@@ -71,25 +71,22 @@ def main():
         type=["ini", "cfg"]
     )
 
-    detected_config_obj_name = "config_op_obj"
-    detected_config_obj_names_list = []
+    # Initialize parser instance that will be used for the main parsing pass
     parser = CodeParser()
-
-    # --- MODIFIED: Temp file for config object detection ---
-    temp_detect_file_path_str = None # Initialize
-    # --- END MODIFIED ---
+    detected_config_obj_name = "config_op_obj" # Default
+    temp_detect_file_path_str = None 
 
     if uploaded_file is not None:
         try:
-            # --- MODIFIED: Use tempfile for detection phase ---
-            with tempfile.NamedTemporaryFile(mode="wb", suffix=f"_{uploaded_file.name}", delete=False) as tmp_script_file_detect:
-                tmp_script_file_detect.write(uploaded_file.getvalue())
+            # Use a temporary file for the detection pass
+            with tempfile.NamedTemporaryFile(mode="wb", suffix=f"_detect_{uploaded_file.name}", delete=False) as tmp_script_file_detect:
+                tmp_script_file_detect.write(uploaded_file.getvalue()) # Write bytes
                 temp_detect_file_path_str = tmp_script_file_detect.name
             
-            # Create a fresh parser instance or ensure state is reset if using the same one
-            # For simplicity, we use the existing 'parser' instance and parse_file should reset its internal state (raw_code, tree)
-            parser.parse_file(temp_detect_file_path_str)
-            detected_config_obj_names_list = parser.detect_config_object_names()
+            detection_parser = CodeParser() # Use a fresh parser instance for detection pass
+            detection_parser.parse_file(temp_detect_file_path_str)
+            detected_config_obj_names_list = detection_parser.detect_config_object_names()
+            
             if detected_config_obj_names_list:
                 detected_config_obj_name = detected_config_obj_names_list[0]
                 if len(detected_config_obj_names_list) > 1:
@@ -97,19 +94,15 @@ def main():
                         f"Detected multiple config objects: {', '.join(detected_config_obj_names_list)}. Using '{detected_config_obj_name}'.")
             else:
                 st.sidebar.caption("Could not auto-detect config object name. Please specify if needed.")
-            # --- END MODIFIED ---
         except Exception as e_detect:
-            st.sidebar.warning(
-                f"Could not auto-detect config object name due to error: {e_detect}")
+            st.sidebar.warning(f"Could not auto-detect config object name: {e_detect}")
+            logging.error(f"Error during config object detection: {e_detect}", exc_info=True)
         finally:
-            # --- MODIFIED: Clean up temp detection file ---
             if temp_detect_file_path_str and Path(temp_detect_file_path_str).exists():
                 try:
                     Path(temp_detect_file_path_str).unlink()
                 except OSError as e_unlink:
                     logging.error(f"Error deleting temp detection file {temp_detect_file_path_str}: {e_unlink}")
-            # --- END MODIFIED ---
-
 
     config_obj_name_in_script = st.sidebar.text_input(
         "Config Object Name in Python Script",
@@ -118,65 +111,55 @@ def main():
     )
 
     st.sidebar.markdown("---")
-    
-
     parsed_config_data = None
     if config_file_uploader is not None:
         try:
             config_content = config_file_uploader.read().decode()
-            # Re-instantiate parser or ensure parse_config_file doesn't depend on prior parse_file state
-            # For now, assuming parser.parse_config_file is independent.
-            config_parser_instance = CodeParser() # Use a fresh instance for config parsing if unsure
+            config_parser_instance = CodeParser() 
             parsed_config_data = config_parser_instance.parse_config_file(config_content)
             st.sidebar.success("Configuration file parsed.")
-        except Exception as e: # Catches configparser.Error re-raised from parse_config_file
+        except Exception as e: 
             st.sidebar.error(f"Error parsing config file: {e}")
-            parsed_config_data = None # Ensure it's None on error
+            parsed_config_data = None 
 
-
-    st.sidebar.header("Detected SQL Information") # Moved for better flow
-
-    # --- MODIFIED: Temp file for main processing ---
+    st.sidebar.header("Detected SQL Information")
     temp_main_process_file_path_str = None
-    # --- END MODIFIED ---
 
     if uploaded_file is not None:
-        uploaded_file.seek(0) # Reset pointer for re-reading
+        uploaded_file.seek(0) 
         try:
-            # --- MODIFIED: Use tempfile for main processing pass ---
-            with tempfile.NamedTemporaryFile(mode="wb", suffix=f"_{uploaded_file.name}", delete=False) as tmp_script_file_main:
+            with tempfile.NamedTemporaryFile(mode="wb", suffix=f"_main_{uploaded_file.name}", delete=False) as tmp_script_file_main:
                 tmp_script_file_main.write(uploaded_file.getvalue())
                 temp_main_process_file_path_str = tmp_script_file_main.name
             
-            # Use the main 'parser' instance, parse_file will overwrite its state
-            parser.parse_file(temp_main_process_file_path_str)
-            # --- END MODIFIED ---
+            # Use the main 'parser' instance for the full parse.
+            parse_result = parser.parse_file(temp_main_process_file_path_str)
+            sql_styles = parser.detected_sql_dialects # Access dialects from the instance
 
-            sql_styles = parser.get_sql_style()
             extracted_sqls_with_args = parser.get_extracted_sql_queries_with_args()
 
             if sql_styles:
-                st.sidebar.write("Detected SQL Styles:")
+                st.sidebar.write("Detected SQL Styles/Dialects:")
                 for style in sql_styles:
                     st.sidebar.caption(style)
             
             if extracted_sqls_with_args:
                 st.sidebar.markdown(
-                    f"### Extracted {len(extracted_sqls_with_args)} SQL Entries (Templates + Args)")
+                    f"### Extracted {len(extracted_sqls_with_args)} Raw SQL Entries")
                 for i, (template, pos_args_tuple, kw_args_tuple_of_items, fmt_type) in enumerate(extracted_sqls_with_args):
                     with st.sidebar.expander(f"SQL Entry {i+1} (Type: {fmt_type})"):
                         st.code(template, language='sql')
                         if pos_args_tuple:
-                            st.caption(f"{len(pos_args_tuple)} positional arg(s) found.")
+                            st.caption(f"{len(pos_args_tuple)} positional arg(s).")
                         if kw_args_tuple_of_items:
-                            st.caption(f"{len(kw_args_tuple_of_items)} keyword arg(s) found.")
+                            st.caption(f"{len(kw_args_tuple_of_items)} keyword arg(s).")
             else:
-                st.sidebar.warning("No SQL query entries were extracted from the file.")
+                st.sidebar.warning("No raw SQL query entries were extracted from the file.")
 
             if st.sidebar.button("Run Lineage Extraction"):
                 if not extracted_sqls_with_args:
-                    st.warning("No SQL query entries to process. Cannot run lineage extraction.")
-                    st.stop() # Use st.stop() instead of return for Streamlit
+                    st.warning("No SQL entries to process. Cannot run lineage extraction.")
+                    st.stop()
 
                 final_sql_queries_to_process = parser.resolve_and_format_sql_queries(
                     extracted_sqls_with_args,
@@ -184,127 +167,175 @@ def main():
                     config_obj_name_in_script
                 )
 
-                logging.info(f"Proceeding to analyze {len(final_sql_queries_to_process)} SQL queries.")
-                with st.expander("Final SQL Queries for Lineage Analysis", expanded=False):
-                    for final_sql_output_str in final_sql_queries_to_process:
-                        st.code(final_sql_output_str, language='sql')
+                logging.info(f"Proceeding to analyze {len(final_sql_queries_to_process)} SQL statements.")
+                if final_sql_queries_to_process:
+                    with st.expander("Final SQL Statements for Lineage Analysis", expanded=False):
+                        for idx, final_sql_output_str in enumerate(final_sql_queries_to_process):
+                            st.markdown(f"**Statement {idx+1}:**")
+                            st.code(final_sql_output_str, language='sql')
+                elif extracted_sqls_with_args : 
+                    st.info("SQL entries were found, but none were resolved into final processable SQL statements.")
+                else: 
+                     st.info("No SQL queries to analyze.")
 
-                with st.spinner("Analyzing resolved SQL queries for lineage..."):
-                    extractor = SQLExtractor()
-                    all_lineage_operations = []
-                    error_count = 0
-                    for i, sql_query in enumerate(final_sql_queries_to_process):
-                        logging.info(f"Processing SQL Query {i+1}/{len(final_sql_queries_to_process)} with model...")
-                        try:
-                            operations_str_for_query = extractor.extract_transformations_from_sql_query(
-                                sql_query,
-                                sql_styles
-                            )
-                            # --- MODIFIED: Robust JSON parsing ---
-                            sanitized_output = operations_str_for_query.strip()
-                            cleaned_json_str = re.sub(r'^```json|```$', '', sanitized_output, flags=re.MULTILINE).strip()
-                            
-                            parsed_json_data = None
+
+                if final_sql_queries_to_process:
+                    with st.spinner("Analyzing resolved SQL statements for lineage..."):
+                        extractor = SQLExtractor()
+                        all_lineage_operations_raw = [] # Collect raw LLM outputs here
+                        error_count = 0
+                        
+                        for i, sql_query in enumerate(final_sql_queries_to_process):
+                            logging.info(f"Processing SQL Statement {i+1}/{len(final_sql_queries_to_process)} with LLM...")
                             try:
-                                # Attempt to parse the cleaned string directly
-                                parsed_json_data = json.loads(cleaned_json_str)
-                            except json.JSONDecodeError:
-                                # Fallback: if direct parsing fails, try to find the outermost array
-                                try:
-                                    start_index = cleaned_json_str.find('[')
-                                    end_index = cleaned_json_str.rfind(']')
-                                    if start_index != -1 and end_index != -1 and end_index > start_index:
-                                        json_array_str = cleaned_json_str[start_index:end_index+1]
-                                        parsed_json_data = json.loads(json_array_str)
-                                    else:
-                                        # If no array found, re-raise to be caught by the outer except
-                                        raise json.JSONDecodeError("No valid JSON array found with fallback", cleaned_json_str, 0) 
-                                except json.JSONDecodeError as e_json_fallback:
-                                    error_count += 1
-                                    st.error(f"Error parsing JSON from model output for query {i+1}: {e_json_fallback}")
-                                    st.code(operations_str_for_query, language='text') # Show original LLM output
-                                    continue # Skip to next query
-                            # --- END MODIFIED ---
-
-                            if isinstance(parsed_json_data, list):
-                                # --- ADDED: Validate lineage data from LLM ---
-                                try:
-                                    # Assuming 'parser' is the CodeParser instance
-                                    validated_operations = parser.validate_lineage_data(parsed_json_data)
-                                    all_lineage_operations.extend(validated_operations)
-                                except ValueError as e_validation:
-                                    error_count += 1
-                                    st.error(f"Validation error for lineage data from query {i+1}: {e_validation}")
-                                    logging.warning(f"Lineage data from query {i+1} failed validation: {parsed_json_data}")
-                                # --- END ADDED ---
-                            elif parsed_json_data: # If not a list but not empty (e.g. a single dict)
-                                error_count += 1
-                                st.warning(f"Expected a list of operations from query {i+1}, but got {type(parsed_json_data)}. Skipping results.")
-                                logging.warning(f"Non-list output for query {i+1}: {parsed_json_data}")
-
-                        except Exception as e_main_proc:
-                            error_count += 1
-                            st.error(f"Error processing query {i+1} (model extraction stage): {e_main_proc}")
-                            logging.error(f"Problematic SQL for query {i+1}:\n{sql_query}", exc_info=True)
-                    
-                    logging.info("All queries processed by model.")
-
-                    if not all_lineage_operations and error_count == 0:
-                        st.warning("Lineage extraction ran, but no lineage operations were derived.")
-                    elif not all_lineage_operations and error_count > 0:
-                        st.error(f"Lineage extraction attempted, but no operations derived and {error_count} error(s) occurred.")
-                    elif all_lineage_operations:
-                        st.success(f"Successfully extracted {len(all_lineage_operations)} lineage operation(s).")
-
-                    if all_lineage_operations:
-                        result = {"column_level_lineage": all_lineage_operations}
-                        tab1, tab2, tab3 = st.tabs(["JSON Output", "Table Preview", "Download"])
-                        with tab1:
-                            st.json(result, expanded=False)
-                        with tab2:
-                            df = pd.DataFrame(all_lineage_operations)
-                            if not df.empty:
-                                st.dataframe(df)
-                            else:
-                                st.info("No data to display in table format.")
-                        with tab3:
-                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                            json_dl_str = json.dumps(result, indent=2)
-                            st.download_button(
-                                "Download JSON", json_dl_str, file_name=f"lineage_extract_{timestamp}.json", mime="application/json")
-                            
-                            df_download = pd.DataFrame(all_lineage_operations)
-                            if not df_download.empty:
-                                csv = df_download.to_csv(index=False)
-                                st.download_button(
-                                    "Download CSV", csv, file_name=f"lineage_extract_{timestamp}.csv", mime="text/csv")
+                                operations_str_for_query = extractor.extract_transformations_from_sql_query(
+                                    sql_query,
+                                    sql_styles 
+                                )
+                                sanitized_output = operations_str_for_query.strip()
+                                cleaned_json_str = re.sub(r'^```json|```$', '', sanitized_output, flags=re.MULTILINE).strip()
                                 
-                                # --- MODIFIED: Temp file for Excel export ---
-                                excel_temp_file_path_str = None
+                                parsed_json_data = None
                                 try:
-                                    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_excel_file:
-                                        excel_temp_file_path_str = tmp_excel_file.name
+                                    parsed_json_data = json.loads(cleaned_json_str)
+                                except json.JSONDecodeError:
+                                    try:
+                                        start_index = cleaned_json_str.find('[')
+                                        end_index = cleaned_json_str.rfind(']')
+                                        if start_index != -1 and end_index != -1 and end_index > start_index:
+                                            json_array_str = cleaned_json_str[start_index:end_index+1]
+                                            parsed_json_data = json.loads(json_array_str)
+                                        else:
+                                            raise json.JSONDecodeError("No valid JSON array found with fallback", cleaned_json_str, 0) 
+                                    except json.JSONDecodeError as e_json_fallback:
+                                        error_count += 1
+                                        st.error(f"Error parsing JSON from LLM for statement {i+1}: {e_json_fallback}")
+                                        st.text("Raw LLM Output:")
+                                        st.code(operations_str_for_query, language='text')
+                                        continue # Skip to next SQL query
+                                
+                                if isinstance(parsed_json_data, list):
+                                    all_lineage_operations_raw.extend(parsed_json_data)
+                                elif parsed_json_data: # If LLM returned a single dict instead of a list
+                                    all_lineage_operations_raw.append(parsed_json_data)
+                                    logging.warning(f"LLM returned a single dict for statement {i+1}, expected list. Added as single item.")
+                            
+                            except Exception as e_main_proc:
+                                error_count += 1
+                                st.error(f"Error processing statement {i+1} (LLM stage): {e_main_proc}")
+                                logging.error(f"Problematic SQL for statement {i+1}:\n{sql_query}", exc_info=True)
+                        
+                        logging.info("All SQL statements processed by LLM. Now processing and validating collected lineage data.")
+
+                        # --- NEW: Centralized processing and validation of collected lineage data ---
+                        all_lineage_operations_processed = []
+                        if all_lineage_operations_raw:
+                            for entry_raw in all_lineage_operations_raw:
+                                if isinstance(entry_raw, dict):
+                                    entry_processed = entry_raw.copy() # Work on a copy
+                                    # Keys that might contain lists from LLM or need string conversion
+                                    keys_to_stringify_if_list = ['SRC_COLUMN_NAME', 'SRC_TABLE_NAME', 'TGT_COLUMN_NAME', 'TGT_TABLE_NAME', 'BUSINESS_RULE']
                                     
-                                    # Pandas ExcelWriter needs a path, it will create/overwrite the file.
-                                    # So, we use the temp file path obtained above.
-                                    with pd.ExcelWriter(excel_temp_file_path_str, engine='openpyxl') as writer:
-                                        df_download.to_excel(writer, index=False)
-                                    
-                                    with open(excel_temp_file_path_str, "rb") as f_excel:
-                                        st.download_button("Download Excel", f_excel, file_name=f"lineage_extract_{timestamp}.xlsx",
-                                                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                                except Exception as e_excel:
-                                    st.error(f"Error preparing Excel file: {e_excel}")
-                                finally:
-                                    if excel_temp_file_path_str and Path(excel_temp_file_path_str).exists():
-                                        try:
-                                            Path(excel_temp_file_path_str).unlink()
-                                        except OSError as e_unlink_excel:
-                                            logging.error(f"Error deleting temp Excel file {excel_temp_file_path_str}: {e_unlink_excel}")
-                                # --- END MODIFIED ---
-                            else:
-                                st.info("No data to download for CSV/Excel.")
-        except ValueError as ve: # Catch syntax errors from parser.parse_file
+                                    for key in keys_to_stringify_if_list:
+                                        if key in entry_processed:
+                                            if isinstance(entry_processed[key], list):
+                                                logging.debug(f"Converting list in '{key}' to string for entry: {entry_processed[key]}")
+                                                entry_processed[key] = ', '.join(map(str, entry_processed[key]))
+                                            elif entry_processed[key] is None:
+                                                entry_processed[key] = "" # Replace None with empty string
+                                            elif not isinstance(entry_processed[key], str):
+                                                # If it's not a string, list, or None, convert to string
+                                                logging.debug(f"Converting non-string/list/None type in '{key}' ({type(entry_processed[key])}) to string.")
+                                                entry_processed[key] = str(entry_processed[key])
+                                    all_lineage_operations_processed.append(entry_processed)
+                                else:
+                                    logging.warning(f"Skipping non-dictionary entry in all_lineage_operations_raw: {type(entry_raw)}")
+                            
+                            try:
+                                # Use the main 'parser' instance for validation, as it has Python file context if needed by validation
+                                all_lineage_operations = parser.validate_lineage_data(all_lineage_operations_processed)
+                            except ValueError as e_validation:
+                                error_count += 1
+                                st.error(f"Validation error for overall lineage data: {e_validation}")
+                                logging.warning(f"Overall lineage data failed validation. Using pre-validation data. Failed data: {all_lineage_operations_processed[:5]}") # Log first 5 problematic items
+                                all_lineage_operations = all_lineage_operations_processed # Fallback to use processed but unvalidated data
+                            except Exception as e_val_generic:
+                                error_count += 1
+                                st.error(f"Unexpected error during lineage data validation: {e_val_generic}")
+                                all_lineage_operations = all_lineage_operations_processed # Fallback
+
+                        else: # all_lineage_operations_raw is empty
+                            all_lineage_operations = []
+                        # --- END NEW: Centralized processing ---
+
+                        if not all_lineage_operations and error_count == 0:
+                            st.warning("Lineage extraction ran, but no valid operations were derived.")
+                        elif not all_lineage_operations and error_count > 0:
+                            st.error(f"Lineage extraction: no operations derived & {error_count} error(s) occurred.")
+                        elif all_lineage_operations:
+                            st.success(f"Successfully processed and validated {len(all_lineage_operations)} lineage operation(s).")
+
+                        if all_lineage_operations:
+                            result = {"column_level_lineage": all_lineage_operations}
+                            tab1, tab2, tab3 = st.tabs(["JSON Output", "Table Preview", "Download"])
+                            with tab1:
+                                st.json(result, expanded=True)
+                            with tab2:
+                                try:
+                                    df = pd.DataFrame(all_lineage_operations)
+                                    if not df.empty:
+                                        st.dataframe(df)
+                                    else:
+                                        st.info("No data for table preview.")
+                                except Exception as e_df:
+                                    st.error(f"Error creating DataFrame for preview: {e_df}")
+                                    logging.error("Error creating DataFrame from all_lineage_operations", exc_info=True)
+                                    st.markdown("Could not display table. Please check JSON output and logs.")
+
+                            with tab3: # Download logic
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                try:
+                                    json_dl_str = json.dumps(result, indent=2)
+                                    st.download_button(
+                                        "Download JSON", json_dl_str, file_name=f"lineage_extract_{timestamp}.json", mime="application/json")
+                                except Exception as e_json_dump:
+                                    st.error(f"Error preparing JSON for download: {e_json_dump}")
+
+                                if all_lineage_operations: 
+                                    try:
+                                        df_download = pd.DataFrame(all_lineage_operations)
+                                        if not df_download.empty:
+                                            csv = df_download.to_csv(index=False)
+                                            st.download_button(
+                                                "Download CSV", csv, file_name=f"lineage_extract_{timestamp}.csv", mime="text/csv")
+                                            
+                                            excel_temp_file_path_str = None
+                                            try:
+                                                with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp_excel_file:
+                                                    excel_temp_file_path_str = tmp_excel_file.name
+                                                
+                                                with pd.ExcelWriter(excel_temp_file_path_str, engine='openpyxl') as writer:
+                                                    df_download.to_excel(writer, index=False)
+                                                
+                                                with open(excel_temp_file_path_str, "rb") as f_excel:
+                                                    st.download_button("Download Excel", f_excel, file_name=f"lineage_extract_{timestamp}.xlsx",
+                                                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                                            except Exception as e_excel:
+                                                st.error(f"Error preparing Excel file: {e_excel}")
+                                            finally:
+                                                if excel_temp_file_path_str and Path(excel_temp_file_path_str).exists():
+                                                    try: Path(excel_temp_file_path_str).unlink()
+                                                    except OSError as e_unlink_excel: logging.error(f"Error deleting temp Excel: {e_unlink_excel}")
+                                        else:
+                                            st.info("No data for CSV/Excel download.")
+                                    except Exception as e_df_dl:
+                                        st.error(f"Error creating DataFrame for download: {e_df_dl}")
+                                else:
+                                    st.info("No data to download.")
+                else: 
+                    st.info("No final SQL statements were resolved for lineage analysis.")
+
+        except ValueError as ve:
              st.error(f"Error processing Python file: {str(ve)}")
              logging.exception("ValueError during file processing UI:")
         except FileNotFoundError as fnfe:
@@ -314,13 +345,11 @@ def main():
             st.error(f"An unexpected error occurred: {str(e)}")
             logging.exception("Error in file processing UI:")
         finally:
-            # --- MODIFIED: Clean up main processing temp file ---
             if temp_main_process_file_path_str and Path(temp_main_process_file_path_str).exists():
                 try:
                     Path(temp_main_process_file_path_str).unlink()
                 except OSError as e_unlink_main:
-                    logging.error(f"Error deleting temp main process file {temp_main_process_file_path_str}: {e_unlink_main}")
-            # --- END MODIFIED ---
+                    logging.error(f"Error deleting temp main process file: {e_unlink_main}")
     else:
         st.info("Upload a Python file and optionally a configuration file to begin.")
 
