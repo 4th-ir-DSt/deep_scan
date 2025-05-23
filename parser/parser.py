@@ -60,7 +60,7 @@ class SQLStringExtractor(ast.NodeVisitor):
             logging.debug(f"Identified as template with placeholders and keywords/placeholders: '{potential_sql_strip[:100]}...'")
             return True # Optimistic for templates; strict parsing happens after Python formatting
 
-        # Stricter check for literals or fully formatted strings
+      
         try:
             dialect_to_try = self.primary_dialect_for_check
             logging.debug(f"Attempting direct sqlglot.parse with dialect: {dialect_to_try or 'default'} for (literal/formatted): '{potential_sql_strip[:100]}'")
@@ -68,18 +68,13 @@ class SQLStringExtractor(ast.NodeVisitor):
             
             if parsed_expressions:
                 # --- MODIFIED: Check the type of the parsed expression ---
-                # Ensure it's a statement type we care about, not just an identifier.
-                # sqlglot.parse() returns a list of expressions.
+               
                 first_expression_key = parsed_expressions[0].key.lower() if parsed_expressions[0].key else ""
                 
-                # Handle cases like "MSCK REPAIR TABLE" where command might be specific
-                # For `MSCK REPAIR TABLE foo` parsed with 'hive', key is 'msck'
-                # For `CREATE TABLE foo (...) LOCATION '...'`, key is 'create'
                 
                 if first_expression_key in self._acceptable_sql_statement_roots:
                     # Additional check for 'command': some actual DDL/DML might parse as command
-                    # if they are simple or very dialect specific.
-                    # e.g. "TRUNCATE TABLE foo" can parse as Command with key 'truncate' or 'command' based on dialect/strictness
+                   
                     if first_expression_key == 'command':
                         # For 'command', check if it starts with a known DDL/DML keyword to be safer
                         command_text_upper = parsed_expressions[0].sql(dialect=dialect_to_try).upper()
