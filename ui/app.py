@@ -18,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
 try:
     from config.settings import settings
     from parser.parser import CodeParser
-    from extractor.extractor import SQLExtractor # Assuming this is set for OpenAI
+    from extractor.extractor import SQLExtractor 
 except ImportError as e:
     st.error(f"Error importing modules: {str(e)}")
     st.error(f"Python path: {sys.path}")
@@ -66,135 +66,61 @@ def main():
         type=settings.supported_extensions
     )
 
-    config_file_uploader = st.sidebar.file_uploader(
-        "Upload Configuration File (e.g., .ini, .cfg)",
-        type=["ini", "cfg"]
-    )
-
     # Initialize parser instance that will be used for the main parsing pass
     parser = CodeParser()
-    detected_config_obj_name = "config_op_obj" # Default
-    temp_detect_file_path_str = None 
-
-    if uploaded_file is not None:
-        try:
-            # Use a temporary file for the detection pass
-            with tempfile.NamedTemporaryFile(mode="wb", suffix=f"_detect_{uploaded_file.name}", delete=False) as tmp_script_file_detect:
-                tmp_script_file_detect.write(uploaded_file.getvalue()) # Write bytes
-                temp_detect_file_path_str = tmp_script_file_detect.name
-            
-            detection_parser = CodeParser() # Use a fresh parser instance for detection pass
-            detection_parser.parse_file(temp_detect_file_path_str)
-            detected_config_obj_names_list = detection_parser.detect_config_object_names()
-            
-            if detected_config_obj_names_list:
-                detected_config_obj_name = detected_config_obj_names_list[0]
-                if len(detected_config_obj_names_list) > 1:
-                    st.sidebar.caption(
-                        f"Detected multiple config objects: {', '.join(detected_config_obj_names_list)}. Using '{detected_config_obj_name}'.")
-            else:
-                st.sidebar.caption("Could not auto-detect config object name. Please specify if needed.")
-        except Exception as e_detect:
-            st.sidebar.warning(f"Could not auto-detect config object name: {e_detect}")
-            logging.error(f"Error during config object detection: {e_detect}", exc_info=True)
-        finally:
-            if temp_detect_file_path_str and Path(temp_detect_file_path_str).exists():
-                try:
-                    Path(temp_detect_file_path_str).unlink()
-                except OSError as e_unlink:
-                    logging.error(f"Error deleting temp detection file {temp_detect_file_path_str}: {e_unlink}")
-
-    config_obj_name_in_script = st.sidebar.text_input(
-        "Config Object Name in Python Script",
-        value=detected_config_obj_name,
-        help="The name of the variable in your Python script that holds the parsed configuration, e.g., `config_op_obj`."
-    )
-
-    st.sidebar.markdown("---")
-    parsed_config_data = None
-    if config_file_uploader is not None:
-        try:
-            config_content = config_file_uploader.read().decode()
-            config_parser_instance = CodeParser() 
-            parsed_config_data = config_parser_instance.parse_config_file(config_content)
-            st.sidebar.success("Configuration file parsed.")
-        except Exception as e: 
-            st.sidebar.error(f"Error parsing config file: {e}")
-            parsed_config_data = None 
-
-    st.sidebar.header("Detected SQL Information")
     temp_main_process_file_path_str = None
 
+    st.sidebar.header("Detected SQL Information")
+
     if uploaded_file is not None:
-        uploaded_file.seek(0) 
+        uploaded_file.seek(0)
         try:
             with tempfile.NamedTemporaryFile(mode="wb", suffix=f"_main_{uploaded_file.name}", delete=False) as tmp_script_file_main:
                 tmp_script_file_main.write(uploaded_file.getvalue())
                 temp_main_process_file_path_str = tmp_script_file_main.name
-            
-            # Use the main 'parser' instance for the full parse.
-            parse_result = parser.parse_file(temp_main_process_file_path_str)
-            sql_styles = parser.detected_sql_dialects # Access dialects from the instance
 
-            extracted_sqls_with_args = parser.get_extracted_sql_queries_with_args()
+            # Use the LLM-based extraction method
+            extracted_sql_queries = parser.extract_sql_with_llm(temp_main_process_file_path_str)
 
-            if sql_styles:
-                st.sidebar.write("Detected SQL Styles/Dialects:")
-                for style in sql_styles:
-                    st.sidebar.caption(style)
-            
-            if extracted_sqls_with_args:
+            if extracted_sql_queries:
                 st.sidebar.markdown(
-                    f"### Extracted {len(extracted_sqls_with_args)} Raw SQL Entries")
-                for i, (template, pos_args_tuple, kw_args_tuple_of_items, fmt_type) in enumerate(extracted_sqls_with_args):
-                    with st.sidebar.expander(f"SQL Entry {i+1} (Type: {fmt_type})"):
-                        st.code(template, language='sql')
-                        if pos_args_tuple:
-                            st.caption(f"{len(pos_args_tuple)} positional arg(s).")
-                        if kw_args_tuple_of_items:
-                            st.caption(f"{len(kw_args_tuple_of_items)} keyword arg(s).")
+                    f"### Extracted {len(extracted_sql_queries)} SQL Queries")
+                for i, sql_query in enumerate(extracted_sql_queries):
+                    with st.sidebar.expander(f"SQL Query {i+1}"):
+                        st.code(sql_query, language='sql')
             else:
-                st.sidebar.warning("No raw SQL query entries were extracted from the file.")
+                st.sidebar.warning("No SQL queries were extracted from the file.")
 
             if st.sidebar.button("Run Lineage Extraction"):
-                if not extracted_sqls_with_args:
-                    st.warning("No SQL entries to process. Cannot run lineage extraction.")
+                if not extracted_sql_queries:
+                    st.warning("No SQL queries to process. Cannot run lineage extraction.")
                     st.stop()
 
-                final_sql_queries_to_process = parser.resolve_and_format_sql_queries(
-                    extracted_sqls_with_args,
-                    parsed_config_data,
-                    config_obj_name_in_script
-                )
-
-                logging.info(f"Proceeding to analyze {len(final_sql_queries_to_process)} SQL statements.")
-                if final_sql_queries_to_process:
+                logging.info(f"Proceeding to analyze {len(extracted_sql_queries)} SQL statements.")
+                if extracted_sql_queries:
                     with st.expander("Final SQL Statements for Lineage Analysis", expanded=False):
-                        for idx, final_sql_output_str in enumerate(final_sql_queries_to_process):
+                        for idx, final_sql_output_str in enumerate(extracted_sql_queries):
                             st.markdown(f"**Statement {idx+1}:**")
                             st.code(final_sql_output_str, language='sql')
-                elif extracted_sqls_with_args : 
-                    st.info("SQL entries were found, but none were resolved into final processable SQL statements.")
-                else: 
-                     st.info("No SQL queries to analyze.")
+                else:
+                    st.info("No SQL queries to analyze.")
 
-
-                if final_sql_queries_to_process:
+                if extracted_sql_queries:
                     with st.spinner("Analyzing resolved SQL statements for lineage..."):
                         extractor = SQLExtractor()
                         all_lineage_operations_raw = [] # Collect raw LLM outputs here
                         error_count = 0
-                        
-                        for i, sql_query in enumerate(final_sql_queries_to_process):
-                            logging.info(f"Processing SQL Statement {i+1}/{len(final_sql_queries_to_process)} with LLM...")
+
+                        for i, sql_query in enumerate(extracted_sql_queries):
+                            logging.info(f"Processing SQL Statement {i+1}/{len(extracted_sql_queries)} with LLM...")
                             try:
                                 operations_str_for_query = extractor.extract_transformations_from_sql_query(
                                     sql_query,
-                                    sql_styles 
+                                    [] # No dialects needed, as we are not detecting them anymore
                                 )
                                 sanitized_output = operations_str_for_query.strip()
                                 cleaned_json_str = re.sub(r'^```json|```$', '', sanitized_output, flags=re.MULTILINE).strip()
-                                
+
                                 parsed_json_data = None
                                 try:
                                     parsed_json_data = json.loads(cleaned_json_str)
@@ -206,25 +132,25 @@ def main():
                                             json_array_str = cleaned_json_str[start_index:end_index+1]
                                             parsed_json_data = json.loads(json_array_str)
                                         else:
-                                            raise json.JSONDecodeError("No valid JSON array found with fallback", cleaned_json_str, 0) 
+                                            raise json.JSONDecodeError("No valid JSON array found with fallback", cleaned_json_str, 0)
                                     except json.JSONDecodeError as e_json_fallback:
                                         error_count += 1
                                         st.error(f"Error parsing JSON from LLM for statement {i+1}: {e_json_fallback}")
                                         st.text("Raw LLM Output:")
                                         st.code(operations_str_for_query, language='text')
                                         continue # Skip to next SQL query
-                                
+
                                 if isinstance(parsed_json_data, list):
                                     all_lineage_operations_raw.extend(parsed_json_data)
                                 elif parsed_json_data: # If LLM returned a single dict instead of a list
                                     all_lineage_operations_raw.append(parsed_json_data)
                                     logging.warning(f"LLM returned a single dict for statement {i+1}, expected list. Added as single item.")
-                            
+
                             except Exception as e_main_proc:
                                 error_count += 1
                                 st.error(f"Error processing statement {i+1} (LLM stage): {e_main_proc}")
                                 logging.error(f"Problematic SQL for statement {i+1}:\n{sql_query}", exc_info=True)
-                        
+
                         logging.info("All SQL statements processed by LLM. Now processing and validating collected lineage data.")
 
                         # --- NEW: Centralized processing and validation of collected lineage data ---
@@ -235,7 +161,7 @@ def main():
                                     entry_processed = entry_raw.copy() # Work on a copy
                                     # Keys that might contain lists from LLM or need string conversion
                                     keys_to_stringify_if_list = ['SRC_COLUMN_NAME', 'SRC_TABLE_NAME', 'TGT_COLUMN_NAME', 'TGT_TABLE_NAME', 'BUSINESS_RULE']
-                                    
+
                                     for key in keys_to_stringify_if_list:
                                         if key in entry_processed:
                                             if isinstance(entry_processed[key], list):
@@ -250,20 +176,8 @@ def main():
                                     all_lineage_operations_processed.append(entry_processed)
                                 else:
                                     logging.warning(f"Skipping non-dictionary entry in all_lineage_operations_raw: {type(entry_raw)}")
-                            
-                            try:
-                                # Use the main 'parser' instance for validation, as it has Python file context if needed by validation
-                                all_lineage_operations = parser.validate_lineage_data(all_lineage_operations_processed)
-                            except ValueError as e_validation:
-                                error_count += 1
-                                st.error(f"Validation error for overall lineage data: {e_validation}")
-                                logging.warning(f"Overall lineage data failed validation. Using pre-validation data. Failed data: {all_lineage_operations_processed[:5]}") # Log first 5 problematic items
-                                all_lineage_operations = all_lineage_operations_processed # Fallback to use processed but unvalidated data
-                            except Exception as e_val_generic:
-                                error_count += 1
-                                st.error(f"Unexpected error during lineage data validation: {e_val_generic}")
-                                all_lineage_operations = all_lineage_operations_processed # Fallback
 
+                            all_lineage_operations = all_lineage_operations_processed
                         else: # all_lineage_operations_raw is empty
                             all_lineage_operations = []
                         # --- END NEW: Centralized processing ---
@@ -351,7 +265,7 @@ def main():
                 except OSError as e_unlink_main:
                     logging.error(f"Error deleting temp main process file: {e_unlink_main}")
     else:
-        st.info("Upload a Python file and optionally a configuration file to begin.")
+        st.info("Upload a Python file to begin.")
 
 if __name__ == "__main__":
     main()

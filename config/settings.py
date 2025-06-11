@@ -6,11 +6,7 @@ import logging
 
 
 class Settings(BaseSettings):
-    # LLM Settings
-    model_name: str = "gpt-4o"
-    max_length: int = 4096
-    temperature: float = 0.5
-
+   
     # File Processing
     supported_extensions: List[str] = ["py", "sql"]
     max_file_size_mb: int = 10
@@ -23,13 +19,9 @@ class Settings(BaseSettings):
     streamlit_theme: str = "light"
     enable_dark_mode: bool = False
 
-    # OpenAI Settings
-    openai_api_key: str = ""  # This should be set in .env
-    openai_model: str = "gpt-4.1"
-
-    # Gemini Settings
-    gemini_api_key: str = ""  # This should be set in .env
-    gemini_model: str = "gemini-2.5-pro-preview-05-06"
+    # Groq/DeepSeek Settings
+    groq_api_key: str
+    groq_model: str
 
     def __init__(self, **kwargs):
         # Convert string lists to actual lists
@@ -38,21 +30,28 @@ class Settings(BaseSettings):
         if 'supported_output_formats' in kwargs and isinstance(kwargs['supported_output_formats'], str):
             kwargs['supported_output_formats'] = json.loads(kwargs['supported_output_formats'])
         
-        # Try to get API keys from environment variables if not in kwargs
-        if 'openai_api_key' not in kwargs or not kwargs['openai_api_key']:
-            env_key = os.getenv('OPENAI_API_KEY')
+        # Try to get Groq API keys from environment variables if not in kwargs
+        if 'groq_api_key' not in kwargs or not kwargs['groq_api_key']:
+            env_key = os.getenv('GROQ_API_KEY')
             if env_key:
-                logging.info("Found OPENAI_API_KEY in environment variables")
-                kwargs['openai_api_key'] = env_key
+                logging.info("Found GROQ_API_KEY in environment variables")
+                kwargs['groq_api_key'] = env_key
             else:
-                logging.warning("OPENAI_API_KEY not found in environment variables")
+                logging.warning("GROQ_API_KEY not found in environment variables")
+        if 'groq_model' not in kwargs or not kwargs['groq_model']:
+            env_model = os.getenv('GROQ_MODEL')
+            if env_model:
+                logging.info("Found GROQ_MODEL in environment variables")
+                kwargs['groq_model'] = env_model
+            else:
+                logging.warning("GROQ_MODEL not found in environment variables")
         
         super().__init__(**kwargs)
         
         # Log the final configuration
         logging.info("Settings initialized with:")
-        logging.info(f"OpenAI API Key present: {'Yes' if self.openai_api_key else 'No'}")
-        logging.info(f"OpenAI Model: {self.openai_model}")
+        logging.info(f"Groq API Key present: {'Yes' if self.groq_api_key else 'No'}")
+        logging.info(f"Groq Model: {self.groq_model}")
 
     model_config = SettingsConfigDict(
         env_file=".env",

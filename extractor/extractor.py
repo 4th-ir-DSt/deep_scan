@@ -1,26 +1,25 @@
-from openai import OpenAI
-from typing import List
-from config.settings import settings
 import gc
 import logging
+import json
+import re
+from typing import List
+from config.settings import settings
+from groq import Groq
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
-
 class SQLExtractor:
     def __init__(self):
-        self.client = OpenAI(api_key=settings.openai_api_key)
+        self.client = Groq(api_key=settings.groq_api_key)
+        self.model = settings.groq_model
 
     def __del__(self):
         gc.collect()
 
-    # Renamed and signature changed: accepts a single SQL query string
     def extract_transformations_from_sql_query(self, sql_query: str, sql_styles: List[str]) -> str:
         try:
-            # Log input data
             logging.info("Input SQL query: %s", sql_query)
-            # Retained if dialects are important
             logging.info("SQL styles: %s", sql_styles)
 
             system_content = """
@@ -124,28 +123,56 @@ class SQLExtractor:
                 {"role": "user", "content": prompt}
             ]
 
-            response = self.client.responses.create(
-                model=settings.openai_model,
-                input=messages
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=0.0,
             )
-            raw_output = response.output_text
+            raw_output = response.choices[0].message.content.strip()
+
+            # Remove all <think>...</think> tags and their content
+            cleaned_output = re.sub(r"<think>[\s\S]*?</think>", "", raw_output, flags=re.IGNORECASE)
+
+            # Remove code block markers if present
+            for marker in ["```json", "````", "```) "]:
+                if cleaned_output.startswith(marker):
+                    cleaned_output = cleaned_output[len(marker):].strip()
+            if cleaned_output.endswith("```"):
+                cleaned_output = cleaned_output[:-3].strip()
+
+            # Try to find the first [ and last ]
+            start_idx = cleaned_output.find('[')
+            end_idx = cleaned_output.rfind(']')
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                json_str = cleaned_output[start_idx:end_idx+1]
+            else:
+                json_str = cleaned_output
 
             # Log output data
-            logging.info("RAW MODEL OUTPUT:")
-            logging.info(raw_output)
+            logging.info("RAW MODEL OUTPUT (after <think> removal):")
+            logging.info(cleaned_output)
 
-            return raw_output
+            # Check for empty or invalid output
+            if not json_str.strip():
+                logging.error("Model output is empty after cleaning. Returning empty list.")
+                return "[]"
+            # Try to parse to ensure it's valid JSON
+            try:
+                parsed = json.loads(json_str)
+            except Exception as e:
+                logging.error(f"Model output is not valid JSON: {e}\nOutput: {json_str}")
+                return "[]"
+
+            return json_str
         except Exception as e:
             gc.collect()
-            raise e
+            logging.error(f"Exception in extract_transformations_from_sql_query: {e}")
+            return "[]"
 
     def _build_prompt_for_sql_query(self, sql_query: str, sql_styles: List[str]) -> str:
         detected_styles_info = ""
         if sql_styles:
-            # Ensuring the model knows the context if specific SQL dialects are identified.
             detected_styles_info = f"Consider the following SQL dialect(s) if relevant to your analysis: {', '.join(sql_styles)}."
-
-        # Streamlined user prompt, relying on the system prompt for detailed JSON structure and field definitions.
         prompt = f"""{detected_styles_info}
 
             analyze the following SQL query **starting from the innermost subquery or CTE outward**. 

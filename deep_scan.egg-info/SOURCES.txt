@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+setup.py
+config/__init__.py
+config/settings.py
+deep_scan.egg-info/PKG-INFO
+deep_scan.egg-info/SOURCES.txt
+deep_scan.egg-info/dependency_links.txt
+deep_scan.egg-info/requires.txt
+deep_scan.egg-info/top_level.txt
+extractor/extractor.py
+parser/__init__.py
+parser/parser.py
+ui/__init__.py
+ui/app.py
