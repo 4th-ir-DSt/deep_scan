@@ -1,10 +1,15 @@
 [project]
+<<<<<<< HEAD
 name = "codebase-analyzer"
+=======
+name = "3rd"
+>>>>>>> 9c7f630 (codes for all folders)
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+<<<<<<< HEAD
     "accelerate>=1.6.0",
     "jsonschema>=4.23.0",
     "openai>=1.77.0",
@@ -15,4 +20,12 @@ dependencies = [
     "streamlit>=1.45.0",
     "torch>=2.7.0",
     "transformers>=4.51.3",
+=======
+    "groq>=0.26.0",
+    "openai>=1.84.0",
+    "python-dotenv>=1.1.0",
+    "sqlglot>=26.25.0",
+    "sqlparse>=0.5.3",
+    "streamlit>=1.45.1",
+>>>>>>> 9c7f630 (codes for all folders)
 ]

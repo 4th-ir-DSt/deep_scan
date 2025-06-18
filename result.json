@@ -1,0 +1,289 @@
+{
+  "source_file": "test.py",
+  "summary": {
+    "total_queries": 13,
+    "query_types": {
+      "UNKNOWN": 1,
+      "INSERT": 1,
+      "CREATE": 1,
+      "SELECT": 1,
+      "DROP": 3,
+      "CREATE TABLE": 6
+    }
+  },
+  "queries": [
+    {
+      "query": "drop table if exists {} purge",
+      "type": "DROP",
+      "line_numbers": [
+        0
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "DROP"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "drop table if exists {} purge"
+        ]
+      }
+    },
+    {
+      "query": "CREATE TABLE {cn_mstr_table} ( id INT PRIMARY KEY, name VARCHAR(255), email VARCHAR(255), country VARCHAR(100), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP )",
+      "type": "CREATE TABLE",
+      "line_numbers": [
+        0
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "CREATE TABLE"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "CREATE TABLE {cn_mstr_table} (\n    id INT PRIMARY KEY,\n    name VARCHAR(255),\n    email VARCHAR(255),\n    country VARCHAR(100),\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n)"
+        ]
+      }
+    },
+    {
+      "query": "create table {0} location '{1}' as (select ab.*,loyaltycard_count from (select householdmemberidentifier,retailbrand,ciam_customerprofile_detail_hkey,householdidentifier,brandmemberstatus,prefferedstore,customercreationdate,customerupdateddate,loyaltycardnumber,cardcreatedate,cardupdatedate,personalidentificationnumberprefix,birthday,email,mobilenumberprefix,registrationchannel,countryofissue,registrationagent,case when current_age < 0 then '' else current_age end as current_age, CASE when current_age < 0 then '' WHEN current_age < 20 THEN '<20 Yrs' WHEN current_age between 20 and 25 then '20-25 Yrs' WHEN current_age between 26 and 30 then '26-30 Yrs' WHEN current_age between 31 and 35 then '31-35 Yrs' WHEN current_age between 36 and 40 then '36-40 Yrs' WHEN current_age between 41 and 45 then '41-45 Yrs' WHEN current_age between 46 and 50 then '46-50 Yrs' WHEN current_age between 51 and 55 then '51-55 Yrs' WHEN current_age between 56 and 59 then '56-59 Yrs' WHEN current_age >=60 then '>60 Yrs' end AGE_RANGE ,CASE WHEN (SUBSTR(personalidentificationnumberprefix,7,8)) between 00 and 49 THEN 'Female' WHEN (SUBSTR(personalidentificationnumberprefix,7,8)) between 50 and 99 THEN 'Male' end GENDER,case when (email= '' or email='NULL' or email is null) then 'No' else 'Yes' end HAS_EMAIL, pmod(row_number() over (order by householdidentifier),2000) as cn_hash_id ,t.tm_dim_key as cust_create_dt_key from ( select h.householdmemberidentifier,h.retailbrand,s.*,case when personalidentificationnumberprefix is null and birthday is not null then round(cast(((datediff(current_date,from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and cast(personalidentificationnumberprefix as int) is null then round(cast(((datediff(current_date,from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and cast(from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd') as date) is null then round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) < 50 then round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and birthday is not null and round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) <> round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) then round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) else round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) end current_age,rank() over (partition by s.ciam_customerprofile_detail_hkey order by s.load_date desc) as rank from {2} h, {3} s where (h.ciam_customerprofile_detail_hkey =s.ciam_customerprofile_detail_hkey)) a inner join {4} t on (from_unixtime(unix_timestamp(a.customercreationdate,'yyyy/MM/dd'),'MM-dd-yy')=t.tm_end_date) where rank=1) ab left outer join (select householdmemberidentifier,h.retailbrand,count(distinct loyaltycardnumber) loyaltycard_count from {3} s join {2} h on s.ciam_customerprofile_detail_hkey=h.ciam_customerprofile_detail_hkey group by h.householdmemberidentifier,h.retailbrand) b on ab.householdmemberidentifier=b.householdmemberidentifier and ab.retailbrand=b.retailbrand)",
+      "type": "CREATE TABLE",
+      "line_numbers": [
+        0
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "CREATE TABLE"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "create table {0} location '{1}' as (select ab.*,loyaltycard_count from (select householdmemberidentifier,retailbrand,ciam_customerprofile_detail_hkey,householdidentifier,brandmemberstatus,prefferedstore,customercreationdate,customerupdateddate,loyaltycardnumber,cardcreatedate,cardupdatedate,personalidentificationnumberprefix,birthday,email,mobilenumberprefix,registrationchannel,countryofissue,registrationagent,case when current_age < 0 then '' else current_age end as current_age, CASE when current_age < 0 then '' WHEN current_age < 20  THEN '<20 Yrs' WHEN current_age  between 20 and 25 then '20-25 Yrs' WHEN current_age between 26 and 30 then '26-30 Yrs' WHEN current_age between 31 and 35 then '31-35 Yrs' WHEN current_age between 36 and 40  then '36-40 Yrs' WHEN current_age between 41 and 45 then  '41-45 Yrs' WHEN current_age between 46 and 50 then '46-50 Yrs' WHEN current_age between 51 and 55 then '51-55 Yrs' WHEN current_age between 56 and 59 then '56-59 Yrs' WHEN current_age >=60 then '>60 Yrs' end  AGE_RANGE ,CASE WHEN (SUBSTR(personalidentificationnumberprefix,7,8))  between 00 and 49  THEN 'Female' WHEN (SUBSTR(personalidentificationnumberprefix,7,8))  between 50 and 99  THEN 'Male' end  GENDER,case when   (email= '' or email='NULL' or email is null) then 'No' else 'Yes' end  HAS_EMAIL, pmod(row_number() over (order by householdidentifier),2000) as cn_hash_id ,t.tm_dim_key as cust_create_dt_key    from ( select h.householdmemberidentifier,h.retailbrand,s.*,case   when personalidentificationnumberprefix is null and birthday is not null then round(cast(((datediff(current_date,from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and cast(personalidentificationnumberprefix as int) is null then round(cast(((datediff(current_date,from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and cast(from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd') as date) is null then round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0)      when personalidentificationnumberprefix is not null and round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) < 50 then round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0)    when personalidentificationnumberprefix is not null and birthday is not null and round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) <> round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) then round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) else      round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) end current_age,rank() over (partition by s.ciam_customerprofile_detail_hkey order by s.load_date desc) as rank  from  {2} h, {3} s  where (h.ciam_customerprofile_detail_hkey =s.ciam_customerprofile_detail_hkey)) a inner join {4} t on (from_unixtime(unix_timestamp(a.customercreationdate,'yyyy/MM/dd'),'MM-dd-yy')=t.tm_end_date) where rank=1) ab left outer join (select householdmemberidentifier,h.retailbrand,count(distinct loyaltycardnumber) loyaltycard_count from {3} s join {2} h on s.ciam_customerprofile_detail_hkey=h.ciam_customerprofile_detail_hkey group by h.householdmemberidentifier,h.retailbrand) b on ab.householdmemberidentifier=b.householdmemberidentifier and ab.retailbrand=b.retailbrand)"
+        ]
+      }
+    },
+    {
+      "query": "sql_to_run",
+      "type": "UNKNOWN",
+      "line_numbers": [
+        0
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "UNKNOWN"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "sql_to_run"
+        ]
+      }
+    },
+    {
+      "query": "insert into {0} ( select c.* from {1} c ANTI JOIN {0} d on (c.householdmemberidentifier=d.householdmemberidentifier and c.retailbrand=d.retailbrand) )",
+      "type": "INSERT",
+      "line_numbers": [
+        0
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "INSERT"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "insert into {0} ( select c.* from {1} c  ANTI JOIN {0} d on (c.householdmemberidentifier=d.householdmemberidentifier and c.retailbrand=d.retailbrand) )"
+        ]
+      }
+    },
+    {
+      "query": "create table {0} location '{1}' as (select ab.*,loyaltycard_count from (select householdmemberidentifier,retailbrand,ciam_customerprofile_detail_hkey,householdidentifier,brandmemberstatus,prefferedstore,customercreationdate,customerupdateddate,loyaltycardnumber,cardcreatedate,cardupdatedate,personalidentificationnumberprefix,birthday,email,mobilenumberprefix,registrationchannel,countryofissue,registrationagent,case when current_age < 0 then '' else current_age end as current_age, CASE when current_age < 0 then '' WHEN current_age < 20 THEN '<20 Yrs' WHEN current_age between 20 and 25 then '20-25 Yrs' WHEN current_age between 26 and 30 then '26-30 Yrs' WHEN current_age between 31 and 35 then '31-35 Yrs' WHEN current_age between 36 and 40 then '36-40 Yrs' WHEN current_age between 41 and 45 then '41-45 Yrs' WHEN current_age between 46 and 50 then '46-50 Yrs' WHEN current_age between 51 and 55 then '51-55 Yrs' WHEN current_age between 56 and 59 then '56-59 Yrs' WHEN current_age >=60 then '>60 Yrs' end AGE_RANGE ,CASE WHEN (SUBSTR(personalidentificationnumberprefix,7,8)) between 00 and 49 THEN 'Female' WHEN (SUBSTR(personalidentificationnumberprefix,7,8)) between 50 and 99 THEN 'Male' end GENDER,case when (email= '' or email='NULL' or email is null) then 'No' else 'Yes' end HAS_EMAIL, pmod(row_number() over (order by householdidentifier),2000) as cn_hash_id ,t.tm_dim_key as cust_create_dt_key from ( select h.householdmemberidentifier,h.retailbrand,s.*,case when personalidentificationnumberprefix is null and birthday is not null then round(cast(((datediff(current_date,from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and cast(personalidentificationnumberprefix as int) is null then round(cast(((datediff(current_date,from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and cast(from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd') as date) is null then round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) < 50 then round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and birthday is not null and round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) <> round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) then round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) else round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) end current_age,rank() over (partition by s.ciam_customerprofile_detail_hkey order by s.load_date desc) as rank from {2} h, {3} s where (h.ciam_customerprofile_detail_hkey =s.ciam_customerprofile_detail_hkey)) a inner join {4} t on (from_unixtime(unix_timestamp(a.customercreationdate,'yyyy/MM/dd'),'MM-dd-yy')=t.tm_end_date) where rank=1) ab left outer join (select householdmemberidentifier,h.retailbrand,count(distinct loyaltycardnumber) loyaltycard_count from {3} s join {2} h on s.ciam_customerprofile_detail_hkey=h.ciam_customerprofile_detail_hkey group by h.householdmemberidentifier,h.retailbrand) b on ab.householdmemberidentifier=b.householdmemberidentifier and ab.retailbrand=b.retailbrand)",
+      "type": "CREATE TABLE",
+      "line_numbers": [
+        0
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "CREATE TABLE"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "create table {0} location '{1}' as (select ab.*,loyaltycard_count from (select householdmemberidentifier,retailbrand,ciam_customerprofile_detail_hkey,householdidentifier,brandmemberstatus,prefferedstore,customercreationdate,customerupdateddate,loyaltycardnumber,cardcreatedate,cardupdatedate,personalidentificationnumberprefix,birthday,email,mobilenumberprefix,registrationchannel,countryofissue,registrationagent,case when current_age < 0 then '' else current_age end as current_age,  CASE when current_age < 0 then '' WHEN current_age < 20  THEN '<20 Yrs' WHEN current_age  between 20 and 25 then '20-25 Yrs' WHEN current_age between 26 and 30 then '26-30 Yrs' WHEN current_age between 31 and 35 then '31-35 Yrs' WHEN current_age between 36 and 40  then '36-40 Yrs' WHEN current_age between 41 and 45 then  '41-45 Yrs' WHEN current_age between 46 and 50 then '46-50 Yrs' WHEN current_age between 51 and 55 then '51-55 Yrs' WHEN current_age between 56 and 59 then '56-59 Yrs' WHEN current_age >=60 then '>60 Yrs' end  AGE_RANGE ,CASE WHEN (SUBSTR(personalidentificationnumberprefix,7,8))  between 00 and 49  THEN 'Female' WHEN (SUBSTR(personalidentificationnumberprefix,7,8))  between 50 and 99  THEN 'Male' end  GENDER,case when   (email= '' or email='NULL' or email is null) then 'No' else 'Yes' end  HAS_EMAIL, pmod(row_number() over (order by householdidentifier),2000) as cn_hash_id ,t.tm_dim_key as cust_create_dt_key    from ( select h.householdmemberidentifier,h.retailbrand,s.*,case   when personalidentificationnumberprefix is null and birthday is not null then round(cast(((datediff(current_date,from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and cast(personalidentificationnumberprefix as int) is null then round(cast(((datediff(current_date,from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and cast(from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd') as date) is null then round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0)      when personalidentificationnumberprefix is not null and round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) < 50 then round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0)    when personalidentificationnumberprefix is not null and birthday is not null and round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) <> round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) then round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) else      round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) end current_age,rank() over (partition by s.ciam_customerprofile_detail_hkey order by s.load_date desc) as rank  from  {2} h, {3} s  where (h.ciam_customerprofile_detail_hkey =s.ciam_customerprofile_detail_hkey)) a inner join {4} t on (from_unixtime(unix_timestamp(a.customercreationdate,'yyyy/MM/dd'),'MM-dd-yy')=t.tm_end_date) where rank=1) ab left outer join (select householdmemberidentifier,h.retailbrand,count(distinct loyaltycardnumber) loyaltycard_count from {3} s join {2} h on s.ciam_customerprofile_detail_hkey=h.ciam_customerprofile_detail_hkey group by h.householdmemberidentifier,h.retailbrand) b on ab.householdmemberidentifier=b.householdmemberidentifier and ab.retailbrand=b.retailbrand)"
+        ]
+      }
+    },
+    {
+      "query": "CREATE TABLE ...",
+      "type": "CREATE",
+      "line_numbers": [
+        0
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "CREATE"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "CREATE TABLE ..."
+        ]
+      }
+    },
+    {
+      "query": "create table {0} location '{1}' as (select ab.*,loyaltycard_count from (select householdmemberidentifier,retailbrand,ciam_customerprofile_detail_hkey,householdidentifier,brandmemberstatus,prefferedstore,customercreationdate,customerupdateddate,loyaltycardnumber,cardcreatedate,cardupdatedate,personalidentificationnumberprefix,birthday,email,mobilenumberprefix,registrationchannel,countryofissue,registrationagent,case when current_age < 0 then '' else current_age end current_age, CASE when current_age < 0 then '' WHEN current_age < 20 THEN '<20 Yrs' WHEN current_age between 20 and 25 then '20-25 Yrs' WHEN current_age between 26 and 30 then '26-30 Yrs' WHEN current_age between 31 and 35 then '31-35 Yrs' WHEN current_age between 36 and 40 then '36-40 Yrs' WHEN current_age between 41 and 45 then '41-45 Yrs' WHEN current_age between 46 and 50 then '46-50 Yrs' WHEN current_age between 51 and 55 then '51-55 Yrs' WHEN current_age between 56 and 59 then '56-59 Yrs' WHEN current_age >=60 then '>60 Yrs' end AGE_RANGE ,CASE WHEN (SUBSTR(personalidentificationnumberprefix,7,8)) between 00 and 49 THEN 'Female' WHEN (SUBSTR(personalidentificationnumberprefix,7,8)) between 50 and 99 THEN 'Male' end GENDER,case when (email= '' or email='NULL' or email is null) then 'No' else 'Yes' end HAS_EMAIL, pmod(row_number() over (order by householdidentifier),2000) as cn_hash_id ,t.tm_dim_key as cust_create_dt_key from ( select h.householdmemberidentifier,h.retailbrand,s.*,case when personalidentificationnumberprefix is null and birthday is not null then round(cast(((datediff(current_date,from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and cast(personalidentificationnumberprefix as int) is null then round(cast(((datediff(current_date,from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and cast(from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd') as date) is null then round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) < 50 then round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and birthday is not null and round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) <> round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) then round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) else round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) end current_age,rank() over (partition by s.ciam_customerprofile_detail_hkey order by s.load_date desc) as rank from {2} h, {3} s where (h.ciam_customerprofile_detail_hkey =s.ciam_customerprofile_detail_hkey)) a inner join {4} t on (from_unixtime(unix_timestamp(a.customercreationdate,'yyyy/MM/dd'),'MM-dd-yy')=t.tm_end_date) where rank=1) ab left outer join (select householdmemberidentifier,h.retailbrand,count(distinct loyaltycardnumber) loyaltycard_count from {3} s join {2} h on s.ciam_customerprofile_detail_hkey=h.ciam_customerprofile_detail_hkey group by h.householdmemberidentifier,h.retailbrand) b on ab.householdmemberidentifier=b.householdmemberidentifier and ab.retailbrand=b.retailbrand)",
+      "type": "CREATE TABLE",
+      "line_numbers": [
+        0
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "CREATE TABLE"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "create table {0} location '{1}' as (select ab.*,loyaltycard_count from (select householdmemberidentifier,retailbrand,ciam_customerprofile_detail_hkey,householdidentifier,brandmemberstatus,prefferedstore,customercreationdate,customerupdateddate,loyaltycardnumber,cardcreatedate,cardupdatedate,personalidentificationnumberprefix,birthday,email,mobilenumberprefix,registrationchannel,countryofissue,registrationagent,case when current_age < 0 then '' else current_age end current_age,  CASE when current_age < 0 then '' WHEN current_age < 20  THEN '<20 Yrs' WHEN current_age  between 20 and 25 then '20-25 Yrs' WHEN current_age between 26 and 30 then '26-30 Yrs' WHEN current_age between 31 and 35 then '31-35 Yrs' WHEN current_age between 36 and 40  then '36-40 Yrs' WHEN current_age between 41 and 45 then  '41-45 Yrs' WHEN current_age between 46 and 50 then '46-50 Yrs' WHEN current_age between 51 and 55 then '51-55 Yrs' WHEN current_age between 56 and 59 then '56-59 Yrs' WHEN current_age >=60 then '>60 Yrs' end  AGE_RANGE ,CASE WHEN (SUBSTR(personalidentificationnumberprefix,7,8))  between 00 and 49  THEN 'Female' WHEN (SUBSTR(personalidentificationnumberprefix,7,8))  between 50 and 99  THEN 'Male' end  GENDER,case when   (email= '' or email='NULL' or email is null) then 'No' else 'Yes' end  HAS_EMAIL, pmod(row_number() over (order by householdidentifier),2000) as cn_hash_id ,t.tm_dim_key as cust_create_dt_key    from ( select h.householdmemberidentifier,h.retailbrand,s.*,case   when personalidentificationnumberprefix is null and birthday is not null then round(cast(((datediff(current_date,from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and cast(personalidentificationnumberprefix as int) is null then round(cast(((datediff(current_date,from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) when personalidentificationnumberprefix is not null and cast(from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd') as date) is null then round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0)      when personalidentificationnumberprefix is not null and round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) < 50 then round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0)    when personalidentificationnumberprefix is not null and birthday is not null and round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) <> round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) then round(cast(((datediff(current_date, from_unixtime(unix_timestamp((SUBSTR(personalidentificationnumberprefix,1,6)),'yyMMdd'),'yyyy-MM-dd')))/365.25) as int),0) else      round(cast(((datediff(current_date, from_unixtime(unix_timestamp(birthday,'yyyy/MM/dd'),'yyyy-MM-dd')))/365.25) as int),0) end current_age,rank() over (partition by s.ciam_customerprofile_detail_hkey order by s.load_date desc) as rank  from  {2} h, {3} s  where (h.ciam_customerprofile_detail_hkey =s.ciam_customerprofile_detail_hkey)) a inner join {4} t on (from_unixtime(unix_timestamp(a.customercreationdate,'yyyy/MM/dd'),'MM-dd-yy')=t.tm_end_date) where rank=1) ab left outer join (select householdmemberidentifier,h.retailbrand,count(distinct loyaltycardnumber) loyaltycard_count from {3} s join {2} h on s.ciam_customerprofile_detail_hkey=h.ciam_customerprofile_detail_hkey group by h.householdmemberidentifier,h.retailbrand) b on ab.householdmemberidentifier=b.householdmemberidentifier and ab.retailbrand=b.retailbrand)"
+        ]
+      }
+    },
+    {
+      "query": "select * from {}",
+      "type": "SELECT",
+      "line_numbers": [
+        0
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "SELECT"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "select * from {}"
+        ]
+      }
+    },
+    {
+      "query": "drop table if exists {}",
+      "type": "DROP",
+      "line_numbers": [
+        79
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "DROP"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "drop table if exists {}"
+        ]
+      }
+    },
+    {
+      "query": "create table if not exists {0} as select * from {1}",
+      "type": "CREATE TABLE",
+      "line_numbers": [
+        102
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "CREATE TABLE"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "create table if not exists {0} as select * from {1}"
+        ]
+      }
+    },
+    {
+      "query": "drop table if exists {}",
+      "type": "DROP",
+      "line_numbers": [
+        233
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "DROP"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "drop table if exists {}"
+        ]
+      }
+    },
+    {
+      "query": "create table if not exists {0} as select * from {1}",
+      "type": "CREATE TABLE",
+      "line_numbers": [
+        249
+      ],
+      "validated_by": [
+        "llm"
+      ],
+      "extraction_details": {
+        "methods": {
+          "llm": {
+            "type": "CREATE TABLE"
+          }
+        },
+        "is_union": false,
+        "original_queries": [
+          "create table if not exists {0}  as select * from {1}"
+        ]
+      }
+    }
+  ]
+}

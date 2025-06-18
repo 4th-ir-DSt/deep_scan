@@ -1,1 +1,15 @@
+<<<<<<< HEAD
 .env
+=======
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.env
+>>>>>>> 9c7f630 (codes for all folders)
