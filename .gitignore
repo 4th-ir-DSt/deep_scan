@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-.env
-=======
 # Python-generated files
 __pycache__/
 *.py[oc]
@@ -12,4 +9,4 @@ wheels/
 # Virtual environments
 .venv
 .env
->>>>>>> 9c7f630 (codes for all folders)
+venv/
