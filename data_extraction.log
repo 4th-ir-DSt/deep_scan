@@ -1,0 +1,17 @@
+2025-06-26 10:30:07,074 - INFO - File Test_file/data_movement_wrapper.py successfully read with 319 lines.
+2025-06-26 10:30:07,076 - INFO - Processing chunk 1 from line 0 to 50
+2025-06-26 10:30:08,522 - INFO - Invoking Groq model for chunk extraction (Attempt 1)
+2025-06-26 10:30:13,199 - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-26 10:30:13,206 - INFO - Model response received successfully for chunk.
+2025-06-26 10:30:13,207 - ERROR - Error calling Groq API: Expecting value: line 1 column 1 (char 0)
+2025-06-26 10:30:13,207 - ERROR - Failed to parse model response into JSON.
+2025-06-26 10:30:13,208 - INFO - Processing chunk 2 from line 50 to 100
+2025-06-26 10:30:14,562 - INFO - Invoking Groq model for chunk extraction (Attempt 1)
+2025-06-26 10:30:18,334 - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 200 OK"
+2025-06-26 10:30:18,337 - INFO - Model response received successfully for chunk.
+2025-06-26 10:30:18,338 - ERROR - Error calling Groq API: Expecting value: line 1 column 1 (char 0)
+2025-06-26 10:30:18,338 - ERROR - Failed to parse model response into JSON.
+2025-06-26 10:30:18,339 - INFO - Processing chunk 3 from line 100 to 150
+2025-06-26 10:30:19,737 - INFO - Invoking Groq model for chunk extraction (Attempt 1)
+2025-06-26 10:30:20,094 - INFO - HTTP Request: POST https://api.groq.com/openai/v1/chat/completions "HTTP/1.1 429 Too Many Requests"
+2025-06-26 10:30:20,095 - INFO - Retrying request to /openai/v1/chat/completions in 5.000000 seconds

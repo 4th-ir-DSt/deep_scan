@@ -1,0 +1,59 @@
+{
+  "lineage": [
+    {
+      "step": 1,
+      "source": "FTP",
+      "destination": "comm_ops.cntl_file_ftp_log",
+      "description": "Data is loaded from FTP to the control table comm_ops.cntl_file_ftp_log."
+    },
+    {
+      "step": 2,
+      "source": "comm_ops.cntl_file_ftp_log",
+      "destination": "S3 staging path",
+      "description": "Data is transformed and staged in S3 from comm_ops.cntl_file_ftp_log via comm_ops.cntl_file_log."
+    },
+    {
+      "step": 3,
+      "source": "S3 staging path",
+      "destination": "Target database (RDS or Redshift)",
+      "description": "Data is copied from S3 staging path to the target database using COPY command."
+    }
+  ],
+  "mapping": {
+    "comm_ops.cntl_src_mast": {
+      "name": "comm_ops.cntl_src_mast",
+      "key_column": "dtst_id",
+      "provides": [
+        "bckt_nm",
+        "stg_path",
+        "delm"
+      ]
+    },
+    "comm_ops.cntl_file_ftp_log": {
+      "name": "comm_ops.cntl_file_ftp_log",
+      "key_column": "dtst_id",
+      "provides": [
+        "src_file_actl_nm",
+        "src_file_ptrn"
+      ]
+    },
+    "comm_ops.cntl_file_log": {
+      "name": "comm_ops.cntl_file_log",
+      "key_column": "dtst_id",
+      "provides": [
+        "file_log_id",
+        "dtst_id",
+        "cycl_time_id",
+        "scen_id",
+        "file_sta"
+      ]
+    },
+    "comm_ops.cntl_obj_metadata_mast": {
+      "name": "comm_ops.cntl_obj_metadata_mast",
+      "key_column": "dtst_id",
+      "provides": [
+        "obj_nm"
+      ]
+    }
+  }
+}
