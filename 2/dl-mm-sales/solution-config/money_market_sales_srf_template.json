@@ -1,0 +1,50 @@
+{
+   "name": "money_market_sales",
+   "run_id": "1",
+   "run_date": "<ccyymmdd>",
+   "assumed_transaction_date": "<ccyymmdd>",
+   "manual_run": 0,
+   "file_prefix": "MoneyMarket_Daily_TransactionCountReport_",
+   "file_extension": "txt.gz",
+   "expected_file_count": 0,
+   "expected_file_rule": "more",
+   "debugmode": "false",
+   "wait_for_files": "false",
+   "wait_loop_count": 10,
+   "wait_delay_time": 300,
+   "cloudformation_stack":
+     {
+        "stack_name": "DL-MONEY-MARKET-SALES-EMR-202210",
+        "cluster_name": "DL-MONEY-MARKET-SALES-EMR-202210",
+        "cluster_size": "xsmall",
+        "tac_jobserver": "EMR-DL-MONEY-MARKET-SALES",
+        "owner": "DATA_ENGINEERING",
+        "system": "EMR",
+        "workload": "10241",
+        "skip":  "FALSE"
+     },
+   "s3_buckets":
+      {
+        "logs_bucket": "<system_config>",
+        "landing_bucket": "<system_config>",
+        "landing_archive_bucket": "<system_config>",
+        "source_bucket": "<system_config>",
+        "validation_bucket": "<system_config>",
+        "working_bucket": "<system_config>",
+        "webservice_bucket": "<system_config>",
+        "solution_config_bucket": "<system_config>"
+      },
+   "source_keys":
+      {
+       	"integration_source_key": "cloudbi/inbound/moneymarket/sales/",
+       	"source_key": "money_market/sales/",
+       	"pyscript_key": "script_library/money_market/sales/",
+	      "local_tmp_folder": "/tmp/money_market/sales/"
+
+         },
+   "script_locations":
+      {
+        "organise_source_script": "money_market_sales_organise_source.py",
+        "source_to_validated_script": "money_market_sales_source_to_validated.py"
+      }
+}

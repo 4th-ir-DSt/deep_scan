@@ -1,0 +1,50 @@
+{
+   "name": "hr_wfm_bi_address",
+   "run_id": "1",
+   "run_date": "<ccyymmdd>",
+   "assumed_transaction_date": "<ccyymmdd>",
+   "manual_run": 0,
+   "file_prefix": "Address_20",
+   "file_extension": "csv.gz",
+   "expected_file_count": 0,
+   "expected_file_rule": "more",
+   "debugmode": "false",
+   "wait_for_files": "false",
+   "wait_loop_count": 10,
+   "wait_delay_time": 300,
+   "cloudformation_stack":
+     {
+        "stack_name": "DL-HR-WFM-BI-ADDRESS-EMR-202106",
+        "cluster_name": "DL-HR-WFM-BI-ADDRESS-EMR-202106",
+        "cluster_size": "xsmall",
+        "tac_jobserver": "EMR-DL-HR-WFM-BI-ADDRESS",
+        "owner": "SHPIT-DE",
+        "system": "SHPIT-WFM",
+        "workload": "4554_WFM_BI",
+        "skip":  "FALSE"
+     },
+   "s3_buckets":
+      {
+        "logs_bucket": "<system_config>",
+        "landing_bucket": "<system_config>",
+        "landing_archive_bucket": "<system_config>",
+        "source_bucket": "<system_config>",
+        "validation_bucket": "<system_config>",
+        "working_bucket": "<system_config>",
+        "webservice_bucket": "<system_config>",
+        "solution_config_bucket": "<system_config>"
+      },
+   "source_keys":
+      {
+       	"integration_source_key": "cloudbi/inbound/hr/workforcemanagement/branch/",
+       	"source_key": "hr/wfm/bi/Address/",
+       	"pyscript_key": "script_library/hr/wfm/bi/Address/",
+	      "local_tmp_folder": "/tmp/hr/wfm/bi/Address/"
+
+         },
+   "script_locations":
+      {
+        "organise_source_script": "hr_wfm_bi_address_organise_source.py",
+        "source_to_validated_script": "hr_wfm_bi_address_source_to_validated.py"
+      }
+}

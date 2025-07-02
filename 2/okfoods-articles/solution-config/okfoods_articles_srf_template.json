@@ -1,0 +1,50 @@
+{
+   "name": "okfoods_articles",
+   "run_id": "1",
+   "run_date": "<ccyymmdd>",
+   "assumed_transaction_date": "<ccyymmdd>",
+   "manual_run": 0,
+   "file_prefix": "1_Articles_",
+   "file_extension": "csv.gz",
+   "expected_file_count": 0,
+   "expected_file_rule": "more",
+   "debugmode": "false",
+   "wait_for_files": "true",
+   "wait_loop_count": 10,
+   "wait_delay_time": 300,
+   "cloudformation_stack":
+     {
+        "stack_name": "DL-OKFOODS-ARTICLES-EMR-202103",
+        "cluster_name": "DL-OKFOODS-ARTICLES-EMR-202103",
+        "cluster_size": "xsmall",
+        "tac_jobserver": "EMR-DL-OKFOODS-ARTICLES",
+        "owner": "SHPIT-DE",
+        "system": "SHPIT-DWH",
+        "workload": "5584_OK_Foods",
+        "skip":  "FALSE"
+     },
+   "s3_buckets":
+      {
+        "logs_bucket": "<system_config>",
+        "landing_bucket": "<system_config>",
+        "landing_archive_bucket": "<system_config>",
+        "source_bucket": "<system_config>",
+        "validation_bucket": "<system_config>",
+        "working_bucket": "<system_config>",
+        "webservice_bucket": "<system_config>",
+        "solution_config_bucket": "<system_config>"
+      },
+   "source_keys":
+      {
+       	"integration_source_key": "cloudbi/inbound/okfoods/articles/",
+       	"source_key": "okfoods/articles/",
+       	"pyscript_key": "script_library/okfoods/articles/",
+	      "local_tmp_folder": "/tmp/okfoods/articles/"
+
+         },
+   "script_locations":
+      {
+        "organise_source_script": "okfoods_articles_organise_source.py",
+        "source_to_validated_script": "okfoods_articles_source_to_validated.py"
+      }
+}

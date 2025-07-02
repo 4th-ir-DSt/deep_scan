@@ -1,0 +1,50 @@
+{
+   "name": "sap_price_data",
+   "run_id": "1",
+   "run_date": "<ccyymmdd>",
+   "assumed_transaction_date": "<ccyymmdd>",
+   "manual_run": 0,
+   "file_prefix": "SAPRetailR3.PriceData.BIDL.",
+   "file_extension": "csv.gz",
+   "expected_file_count": 0,
+   "expected_file_rule": "more",
+   "debugmode": "false",
+   "wait_for_files": "false",
+   "wait_loop_count": 10,
+   "wait_delay_time": 300,
+   "cloudformation_stack":
+     {
+        "stack_name": "DL-SAP-PRICE-DATA-EMR-202305",
+        "cluster_name": "DL-SAP-PRICE-DATA-EMR-202305",
+        "cluster_size": "xsmall",
+        "tac_jobserver": "EMR-DL-SAP-PRICE-DATA",
+        "owner": "SHPIT-DE",
+        "system": "SHPIT-BCG",
+        "workload": "9996_BCG",
+        "skip":  "FALSE"
+     },
+   "s3_buckets":
+      {
+        "logs_bucket": "<system_config>",
+        "landing_bucket": "<system_config>",
+        "landing_archive_bucket": "<system_config>",
+        "source_bucket": "<system_config>",
+        "validation_bucket": "<system_config>",
+        "working_bucket": "<system_config>",
+        "webservice_bucket": "<system_config>",
+        "solution_config_bucket": "<system_config>"
+      },
+   "source_keys":
+      {
+       	"integration_source_key": "CloudBI/Inbound/SAP/PriceData/",
+       	"source_key": "sap/price_data/",
+       	"pyscript_key": "script_library/sap/price_data/",
+	      "local_tmp_folder": "/tmp/sap/price_data/"
+
+         },
+   "script_locations":
+      {
+        "organise_source_script": "sap_price_data_organise_source.py",
+        "source_to_validated_script": "sap_price_data_source_to_validated.py"
+      }
+}
